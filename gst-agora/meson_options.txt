@@ -1,0 +1,10 @@
+# Paths the plugins are linked against. Defaults point at the system-installed
+# libraries (the normal build_all_* flow). A local/in-place build overrides these
+# to point at the freshly-built backend and the vendored SDK so nothing in
+# /usr/local is required or overwritten.
+option('agorac_lib', type : 'string',
+       value : '/usr/local/lib/libgstagorac.so',
+       description : 'Path to libgstagorac.so to link the plugins against')
+option('agora_sdk_lib', type : 'string',
+       value : '/usr/local/lib/libagora_rtc_sdk.so',
+       description : 'Path to libagora_rtc_sdk.so to link the plugins against')

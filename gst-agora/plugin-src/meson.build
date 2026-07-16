@@ -10,84 +10,27 @@ cdata.set_quoted('GST_PACKAGE_ORIGIN', 'https://www.agora.io')
 configure_file(output : 'config.h', configuration : cdata)
 
 
-# agorasink
-agorasink_sources = [
-  'agorasink/gstagorasink.c',
-  ]
+# This fork builds only the agoraioudp element. The agorasink / agorasrc /
+# agoraio targets were removed; restore them from git history if needed.
 
 x264 = dependency('x264')
 swscale = dependency('libswscale')
 opus = dependency('opus')
 av= dependency('libavcodec')
-
-gstagorasink = library('gstagorasink',
-  agorasink_sources,
-  c_args: plugin_c_args,
-  dependencies : [gst_dep,x264, swscale, opus, av],
-  install : true,
-  install_dir : plugins_install_dir,
-  objects: [
-        '/usr/local/lib/libgstagorac.so',
-        '/usr/local/lib/libagora_rtc_sdk.so',
-    ]
-)
-
-# agorasrc
-agorasrc_sources = [
-  'agorasrc/gstagorasrc.c',
-  ]
-
-x264 = dependency('x264')
-swscale = dependency('libswscale')
-opus = dependency('opus')
-
-gst_base_dep = dependency('gstreamer-base-1.0')
-
-gstagorasrc = library('gstagorasrc',
-  agorasrc_sources,
-  c_args: plugin_c_args,
-  dependencies : [gst_dep,x264, swscale, opus,av, gst_base_dep],
-  install : true,
-  install_dir : plugins_install_dir,
-  objects: [
-        '/usr/local/lib/libgstagorac.so',
-        '/usr/local/lib/libagora_rtc_sdk.so',
-    ]
-)
-
-# agoraio
-agoraio_sources = [
-  'agoraio/gstagoraio.c',
-  ]
-
-x264 = dependency('x264')
-swscale = dependency('libswscale')
-opus = dependency('opus')
-
 gst_base_dep = dependency('gstreamer-base-1.0')
 gst_app_dep = dependency('gstreamer-app-1.0')
 
-gstagorio = library('gstagoraio',
-  agoraio_sources,
-  c_args: plugin_c_args,
-  dependencies : [gst_dep,x264, swscale, opus,av,gst_base_dep, gst_app_dep],
-  install : true,
-  install_dir : plugins_install_dir,
-  objects: [
-        '/usr/local/lib/libgstagorac.so',
-        '/usr/local/lib/libagora_rtc_sdk.so',
-    ]
-)
+# Libraries the plugin links against. Default to the system-installed copies;
+# a local build passes -Dagorac_lib=... -Dagora_sdk_lib=... to link the
+# freshly-built backend + vendored SDK instead (see build/build_local_*.sh).
+agorac_lib = get_option('agorac_lib')
+agora_sdk_lib = get_option('agora_sdk_lib')
 
 # agoraioudp
 agoraioudp_sources = [
   'agoraioudp/gstagoraioudp.c',
   ]
 
-x264 = dependency('x264')
-swscale = dependency('libswscale')
-opus = dependency('opus')
-av= dependency('libavcodec')
 gstagorioudp = library('gstagoraioudp',
   agoraioudp_sources,
   c_args: plugin_c_args,
@@ -95,9 +38,7 @@ gstagorioudp = library('gstagoraioudp',
   install : true,
   install_dir : plugins_install_dir,
   objects: [
-        '/usr/local/lib/libgstagorac.so',
-        '/usr/local/lib/libagora_rtc_sdk.so',
+        agorac_lib,
+        agora_sdk_lib,
     ]
 )
-
-

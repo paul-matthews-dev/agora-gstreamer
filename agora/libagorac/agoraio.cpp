@@ -105,7 +105,10 @@ bool AgoraIo::initAgoraService(const std::string& appid)
     scfg.enableAudioProcessor = true;
     scfg.enableAudioDevice = false;
     scfg.enableVideo = true;
- 
+    // Restrict Agora's real-time network to "global except mainland China".
+    // 0xFFFFFFFE; applied at service init so it governs every connection.
+    scfg.areaCode = agora::rtc::AREA_CODE_OVS;
+
 
     if (_service->initialize(scfg) != agora::ERR_OK)
     {

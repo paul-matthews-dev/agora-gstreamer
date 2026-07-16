@@ -1,0 +1,21 @@
+In file included from agoraio.h:18,
+                 from agorac.cpp:31:
+observer/userobserver.h:140:50: error: ‘agora::rtc::LOCAL_VIDEO_STREAM_ERROR’ has not been declared
+  140 |                                      agora::rtc::LOCAL_VIDEO_STREAM_ERROR errorCode) override {}
+      |                                                  ^~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h:125:8: error: ‘void UserObserver::onUserVideoTrackSubscribed(agora::user_id_t, agora::rtc::VideoTrackInfo, agora::agora_refptr<agora::rtc::IRemoteVideoTrack>)’ marked ‘override’, but does not override
+  125 |   void onUserVideoTrackSubscribed(
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h:138:8: error: ‘void UserObserver::onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack>, agora::rtc::LOCAL_VIDEO_STREAM_STATE, int)’ marked ‘override’, but does not override
+  138 |   void onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h: In member function ‘void UserObserver::unsetVideoFrameObserver()’:
+observer/userobserver.h:98:64: error: no matching function for call to ‘agora::rtc::IRemoteVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>&)’
+   98 |       remote_video_track_->removeRenderer(video_frame_observer_);
+      |                                                                ^
+In file included from helpers/context.h:14,
+                 from agorac.cpp:23:
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note: candidate: ‘virtual bool agora::rtc::IVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>, agora::media::base::VIDEO_MODULE_POSITION, aosl_ref_t)’
+  167 |   virtual bool removeRenderer(agora_refptr<IVideoSinkBase> videoRenderer, media::base::VIDEO_MODULE_POSITION position, aosl_ref_t ares = AOSL_REF_INVALID) = 0;
+      |                ^~~~~~~~~~~~~~
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note:   candidate expects 3 arguments, 1 provided

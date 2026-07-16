@@ -7,10 +7,9 @@ echo "MAKE"
 make 
 echo "MAKE INSTALL"
 sudo make install
-sudo cp $INPUT_DIR/agora_sdk/libagora_rtc_sdk.so /usr/local/lib
-sudo cp $INPUT_DIR/agora_sdk/libagora-ffmpeg.so /usr/local/lib  2>/dev/null
-sudo cp $INPUT_DIR/agora_sdk/libagora-core.so /usr/local/lib
-sudo cp $INPUT_DIR/agora_sdk/libagora-fdkaac.so /usr/local/lib
+# copy every shared lib the SDK ships (rtc_sdk NEEDs libagora-fdkaac.so and,
+# since 4.4.x, libaosl.so; the exact set varies by SDK version)
+sudo cp $INPUT_DIR/agora_sdk/*.so /usr/local/lib
 sudo cp agorac.h /usr/local/include
 sudo cp agoraconfig.h /usr/local/include
 sudo ldconfig
