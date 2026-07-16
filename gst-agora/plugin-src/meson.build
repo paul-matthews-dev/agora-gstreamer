@@ -37,7 +37,11 @@ gstagorioudp = library('gstagoraioudp',
   dependencies : [gst_dep,x264, swscale, opus,av, gst_base_dep, gst_app_dep],
   install : true,
   install_dir : plugins_install_dir,
-  objects: [
+  # Link the prebuilt backend + SDK after the plugin objects and force-keep them:
+  # the plugin references agoraio_* from libgstagorac.so, so --as-needed (default)
+  # would otherwise drop it and leave those symbols undefined.
+  link_args: [
+        '-Wl,--no-as-needed',
         agorac_lib,
         agora_sdk_lib,
     ]

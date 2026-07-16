@@ -95,7 +95,10 @@ class UserObserver : public agora::rtc::ILocalUserObserver {
 
   void unsetVideoFrameObserver() {
     if (remote_video_track_ && video_frame_observer_) {
-      remote_video_track_->removeRenderer(video_frame_observer_);
+      // SDK 4.4.x made the renderer position a required argument (it defaulted
+      // to POSITION_PRE_RENDERER before); passing it explicitly works on both.
+      remote_video_track_->removeRenderer(video_frame_observer_,
+                                          agora::media::base::POSITION_PRE_RENDERER);
     }
   }
 
@@ -122,9 +125,16 @@ class UserObserver : public agora::rtc::ILocalUserObserver {
   void onVideoTrackPublicationFailure(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
                                       agora::ERROR_CODE_TYPE error) override {}
 
+  // SDK 4.4.x (build 675674) changed trackInfo from by-value to const-reference.
+#if SDK_BUILD_NUM>=675674
+  void onUserVideoTrackSubscribed(
+      agora::user_id_t userId, const agora::rtc::VideoTrackInfo& trackInfo,
+      agora::agora_refptr<agora::rtc::IRemoteVideoTrack> videoTrack) override;
+#else
   void onUserVideoTrackSubscribed(
       agora::user_id_t userId, agora::rtc::VideoTrackInfo trackInfo,
       agora::agora_refptr<agora::rtc::IRemoteVideoTrack> videoTrack) override;
+#endif
 
   void onUserVideoTrackStateChanged(agora::user_id_t userId,
                                     agora::agora_refptr<agora::rtc::IRemoteVideoTrack> videoTrack,
@@ -135,9 +145,16 @@ class UserObserver : public agora::rtc::ILocalUserObserver {
   void onRemoteVideoTrackStatistics(agora::agora_refptr<agora::rtc::IRemoteVideoTrack> videoTrack,
                                     const agora::rtc::RemoteVideoTrackStats& stats) override;
 
+  // SDK 4.4.x renamed the LOCAL_VIDEO_STREAM_ERROR enum to LOCAL_VIDEO_STREAM_REASON.
+#if SDK_BUILD_NUM>=675674
+  void onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
+                                     agora::rtc::LOCAL_VIDEO_STREAM_STATE state,
+                                     agora::rtc::LOCAL_VIDEO_STREAM_REASON reason) override {}
+#else
   void onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
                                      agora::rtc::LOCAL_VIDEO_STREAM_STATE state,
                                      agora::rtc::LOCAL_VIDEO_STREAM_ERROR errorCode) override {}
+#endif
 
   void onLocalVideoTrackStatistics(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
                                    const agora::rtc::LocalVideoTrackStats& stats) override;
