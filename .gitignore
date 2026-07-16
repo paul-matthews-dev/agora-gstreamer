@@ -1,0 +1,14 @@
+# Agora SDK runtime artifacts (generated when a pipeline runs)
+agora_cache.db
+agora*.dat
+agorareport.dat
+crash_context*
+xdump_config
+common_resource/
+
+# meson/ninja build output
+gst-agora/build*/
+
+# built backend library (produced by install.sh/make; not a source artifact).
+# Specific path so the vendored SDK .so files under agora/sdk/ stay tracked.
+agora/libagorac/libgstagorac.so

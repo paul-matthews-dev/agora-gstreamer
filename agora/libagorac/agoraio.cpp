@@ -73,6 +73,9 @@ AgoraIo::AgoraIo(const bool& verbose,
  _enableProxy(enableProxy),
  _proxyConnectionTimeOut((proxyTimeout < 1 ) ? 10000 : proxyTimeout),
  _proxyIps(proxyIps),
+ _videoWidth(0),
+ _videoHeight(0),
+ _videoFps(0),
  _transcodeVideo(enableTranscode),
  _requireTranscode(true), // start off with transcoder
  _requireKeyframe(false),
@@ -680,14 +683,17 @@ bool AgoraIo::doSendHighVideo(const uint8_t* buffer,  uint64_t len,int is_key_fr
   agora::rtc::EncodedVideoFrameInfo videoEncodedFrameInfo;
   videoEncodedFrameInfo.rotation = agora::rtc::VIDEO_ORIENTATION_0;
   videoEncodedFrameInfo.codecType = agora::rtc::VIDEO_CODEC_H264;
-  //videoEncodedFrameInfo.framesPerSecond = 30;
+  // Dimensions/fps come from the pipeline caps (setVideoDimensions). SDK 4.4.x
+  // needs a non-zero width/height here or remote decoders render a black frame.
+  videoEncodedFrameInfo.width = _videoWidth;
+  videoEncodedFrameInfo.height = _videoHeight;
   videoEncodedFrameInfo.frameType = frameType;
   videoEncodedFrameInfo.streamType = agora::rtc::VIDEO_STREAM_HIGH;
  
   //for a better a/v sync 
   videoEncodedFrameInfo.captureTimeMs = getAgoraCurrentMonotonicTimeInMs();
   videoEncodedFrameInfo.decodeTimeMs = 0;
-  videoEncodedFrameInfo.framesPerSecond = 0;
+  videoEncodedFrameInfo.framesPerSecond = (_videoFps>0) ? (int)_videoFps : 30;
 
   if(_transcodeVideo && (_requireTranscode || (_requireKeyframe && !is_key_frame))){
         //transcoding 
@@ -1052,6 +1058,12 @@ void AgoraIo::stopPublishVideo(){
 
 void AgoraIo::setSendOnly(const bool& flag){
     _sendOnly=flag;
+}
+
+void AgoraIo::setVideoDimensions(const int& width, const int& height, const int& fps){
+    if(width>0)  _videoWidth=width;
+    if(height>0) _videoHeight=height;
+    if(fps>0)    _videoFps=fps;
 }
 
 std::list<std::string> AgoraIo::parseIpList(){
