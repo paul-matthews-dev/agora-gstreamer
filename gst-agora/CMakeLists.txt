@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.15.3)
 
 project(agora-gstreamer-plugin)
 
@@ -13,9 +13,10 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 pkg_search_module(GLIB REQUIRED glib-2.0)
-pkg_search_module(GST REQUIRED gstreamer-1.0>=1.4)
+pkg_search_module(GST REQUIRED IMPORTED_TARGET gstreamer-1.0)
 pkg_check_modules(GSTREAMER_BASE REQUIRED gstreamer-app-1.0)
 pkg_check_modules(GSTREAMER_SDP REQUIRED gstreamer-sdp-1.0)
+
 
 include_directories(
     ${GLIB_INCLUDE_DIRS}
@@ -35,9 +36,9 @@ set(LIBS
         ${GSTREAMER_APP_LDFLAGS}
         ${GSTREAMER_SDP_LDFLAGS}
         ${GSTREAMER_BASE_LDFLAGS}
-        ${INSTALL_PATH}/lib/libagorac.so
+        ${INSTALL_PATH}/lib/libgstagorac.so
         ${INSTALL_PATH}/lib/libagora_rtc_sdk.so
-        ${INSTALL_PATH}/lib/libagora-ffmpeg.so
+	#        ${INSTALL_PATH}/lib/libagora-ffmpeg.so
         x264
         swscale
         opus

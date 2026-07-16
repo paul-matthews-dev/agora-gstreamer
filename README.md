@@ -20,10 +20,11 @@ Intel or arm are supported.
 gst-launch-1.0 -v videotestsrc pattern=ball is-live=true ! video/x-raw,format=I420,width=320,height=180,framerate=60/1 ! queue ! fakesink    
  
 ## Build and install agora gstreamer plugins
-   After installing the libraries above on your Ubuntu system         
+   After installing the libraries above on your Ubuntu system you can build the latest Intel version (or ARM if required)           
    Clone this repo using git clone       
-   cd agora-gstreamer     
-  ./build_all_3.8.2.sh   # change to latest version  (or ARM if required)
+   
+   cd agora-gstreamer/build     
+  ./build_all_4.2.30.sh    
   
   If no errors are printed the new agora gs plugins will be installed on the system ready for use
 
@@ -119,15 +120,23 @@ gst-launch-1.0 rtspsrc location=rtsp://admin:eee@1.2.3.4:2036/Streaming/Channels
 
 gst-launch-1.0  rtspsrc location=rtsp://admin:rrr@1.2.21.50:6005/Streaming/Channels/102 latency=0 buffer-mode=auto ! rtph264depay ! h264parse ! video/x-h264, stream-format=avc, alignment=au ! agorasink appid=20b7c51ff4c644ab80cf5a4e646b0537 channel=test2 avc-to-annexb=true       
 
+<ins>MP4 audio and video</ins>       
+gst-launch-1.0 urisourcebin uri=https://chatcatchat.s3.amazonaws.com/fwtest/badsync.mp4 name=src \
+  src. ! decodebin name=decoder \
+  decoder. ! queue name=video_queue ! videoconvert ! x264enc key-int-max=60 tune=zerolatency ! queue ! agorasink appid=xxx channel=xxx inport=7373 \
+  decoder. ! queue name=audio_queue ! audioresample ! audioconvert ! opusenc bitrate=128000 ! udpsink host=127.0.0.1 port=7373
+
 
  ## agorasrc
 
 <ins>Video out of Agora:</ins>    
    agorasrc can be used to read encoded h264 from an agora channel, here is an example pipleline:     
    
-   gst-launch-1.0 agorasrc verbose=false appid=xxx channel=xxx  ! decodebin ! glimagesink     
+   gst-launch-1.0 agorasrc verbose=false appid=xxx channel=xxx ! decodebin ! glimagesink     
 
-   gst-launch-1.0 agorasrc verbose=false  appid=xxx channel=xxx! decodebin ! autovideosink      
+   gst-launch-1.0 agorasrc verbose=false appid=xxx channel=xxx ! decodebin ! autovideosink      
+
+   gst-launch-1.0 agorasrc appid=xxx channel=xxx ! decodebin ! videoconvert ! jpegenc ! multifilesink location=%05d.jpg
 
    where appid and channel is same as agorasink. 
    
