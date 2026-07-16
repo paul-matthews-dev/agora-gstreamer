@@ -4,96 +4,89 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This repo provides GStreamer plugins that wrap the Agora Linux RTC SDK, letting GStreamer
-pipelines send media into and pull media out of an Agora real-time channel. It targets Linux
-on x86_64 (Intel/AMD) and aarch64/arm64.
+A GStreamer plugin wrapping the Agora Linux RTC SDK, trimmed to the single **`agoraioudp`**
+element and targeting **aarch64 (ARM64) only** with the **Agora Linux RTC SDK v4.4.32**
+(SDK build 675674), vendored under `agora/sdk/agora_sdk_aarch64_4.4.32/`.
 
-Four GStreamer elements are registered (each is a separate shared object installed into the
-GStreamer plugin dir):
-
-- **agorasink** — sink; forwards encoded H.264 video / Opus audio from a pipeline into an Agora channel.
-- **agorasrc** — source; pulls encoded H.264 / raw audio out of an Agora channel into a pipeline.
-- **agoraio** — combined src+sink using GStreamer app-style buffers (bidirectional).
-- **agoraioudp** — bidirectional element that bridges Agora media to/from local UDP ports (`inport`/`outport`), used for the webcam/mic examples in the README.
+`agoraioudp` is bidirectional: its GStreamer pads carry encoded **H.264** video (sink =
+publish to Agora, src = remote video out), while audio is bridged over local UDP
+(`inport` = Opus in → Agora, `outport` = PCM out from Agora). The other elements
+(`agorasink`/`agorasrc`/`agoraio`), other SDKs, and cross-compile tooling were removed.
 
 ## Architecture
 
-The code is two layers:
+Two layers, connected by a flat C ABI:
 
-1. **`agora/libagorac/`** — a C++ library (`libgstagorac.so`) that does all the real Agora SDK
-   work. `agorac.cpp` exposes a flat `extern "C"` API (declared in `agorac.h`) so the C GStreamer
-   plugins can call it. The main class is `AgoraIo` (`agoraio.cpp` / `agoraio.h`) — it owns the
-   Agora service/connection, encode/decode, jitter buffering, and A/V sync. Supporting code:
-   - `observer/` — Agora SDK callbacks (`pcmframeobserver`, `h264frameobserver`, `connectionobserver`, `userobserver`) that receive remote media and connection events.
-   - `helpers/` — `agoraencoder`/`agoradecoder` (x264 + libavcodec + swscale), `agoralog`, `localconfig`, `utilities`, `uidtofile`.
-   - `file_parser/` — H.264 / AAC / Opus elementary-stream parsers.
-   - `syncbuffer.cpp` — A/V synchronization buffer.
+1. **`agora/libagorac/`** — C++ backend built as `libgstagorac.so`. `agorac.cpp` exposes an
+   `extern "C"` API (`agorac.h`); the real work is in class `AgoraIo` (`agoraio.cpp`), which
+   owns the Agora service/connection, publish/subscribe, and A/V sync. Sub-dirs: `observer/`
+   (SDK callbacks), `helpers/` (encode/decode, log, utilities), `file_parser/`, `syncbuffer.cpp`.
 
-2. **`gst-agora/plugin-src/<element>/gst<element>.c`** — thin C GStreamer element implementations.
-   Each parses element properties into an `agora_config_t` struct (defined in
-   `agora/libagorac/agoraconfig.h`), calls `agoraio_init(&config)` to get an opaque
-   `AgoraIoContext_t*`, and in its chain function calls `agoraio_send_video` /
-   `agoraio_send_audio[_with_duration]`. `gst_agorasink_chain(...)` in `gstagorasink.c` is the
-   main data path / entrypoint to study first.
+2. **`gst-agora/plugin-src/agoraioudp/gstagoraioudp.c`** — the C element. It fills an
+   `agora_config_t` (`agora/libagorac/agoraconfig.h`), calls `agoraio_init(&config)` for an
+   opaque `AgoraIoContext_t*`, then `agoraio_send_video` on its chain function.
 
-**Key seam:** the C plugins never touch the Agora SDK directly — everything crosses the
-`extern "C"` boundary in `agorac.h`. When adding a plugin property that changes behavior, wire it
-through: element property → `agora_config_t` field → `AgoraIo` constructor/`init` args.
-
-`gst-agora/plugin-src/template/` and `shared/` (`agorah264parser`) are shared scaffolding.
-`gst-agora/plugin-src/tools/make_element` generates a new element skeleton.
+**Key seam:** the C plugin never touches the SDK directly — everything crosses `agorac.h`.
+To surface a new plugin property: element property → `agora_config_t` → `AgoraIo` ctor/`init`.
+The video-dimensions path is the exception/model to copy: caps event →
+`agoraio_set_video_dimensions()` → `AgoraIo` members → `EncodedVideoFrameInfo` (see gotcha #1).
 
 ## Building
 
-Build the C++ library first, then the plugins. The versioned build scripts in `build/` do both.
-Run from the `build/` directory:
+Native aarch64 only. `install.sh` builds the backend via the **makefile** (`make`), not CMake.
 
 ```sh
 cd build
-./build_all_4.2.30.sh              # x86_64, Agora SDK 4.2.30
-./build_all_aarch64_4.2.32.sh      # native aarch64, Agora SDK 4.2.32
+./build_all_aarch64_4.4.32.sh     # system install: backend+SDK -> /usr/local/lib, plugin -> gstreamer dir (sudo)
+./build_local_aarch64_4.4.32.sh   # in-place build, installs NOTHING (for testing); prints the env to use
 ```
 
-Each script:
-1. `cd ../agora/libagorac && ./install.sh <path-to-agora-sdk>` — runs `make` + `sudo make install`,
-   installs `libgstagorac.so`, the bundled `libagora_rtc_sdk.so` (and friends), and headers into
-   `/usr/local/`, then `ldconfig`.
-2. `cd ../gst-agora && meson build && ./install` — meson build + `sudo ninja install` of the four
-   plugin `.so` files.
+- `install.sh <sdkdir>` runs `make` + `sudo make install`, copies **all** `$sdkdir/agora_sdk/*.so`
+  to `/usr/local/lib` (glob — see gotcha #3), installs headers, `ldconfig`.
+- The plugin is built with meson. `gst-agora/plugin-src/meson.build` builds only `agoraioudp`
+  and links the backend + SDK via **`link_args`** (see gotcha #2). `gst-agora/meson_options.txt`
+  exposes `agorac_lib` / `agora_sdk_lib` so the local build points at the repo copies instead of
+  `/usr/local/lib` (the install defaults).
 
-The Agora SDKs are vendored under `agora/sdk/<version>/`. `install.sh` takes the SDK dir as its
-one argument and exports it as `AGORA_SDK_DIR` for CMake. `old_build/` holds obsolete scripts for
-older SDK versions — prefer `build/`.
-
-Note: `meson.build` links the plugins directly against absolute paths
-`/usr/local/lib/libgstagorac.so` and `/usr/local/lib/libagora_rtc_sdk.so`, so step 1 must succeed
-before step 2.
-
-### Cross-compiling arm64 on x86
-
-Use `arm64.cmake` toolchain files. Set `INSTALL_PATH` for where the lib is copied, and copy the
-target's `/usr/include/aarch64-linux-gnu` onto the host first (see README "Cross compilation"
-section). `build/build_all_aarch64_on_intel_4.2.32.sh` automates the cross build.
-
-## Running
-
-Always export the plugin path before running any pipeline:
-
+Run pipelines with (system install):
 ```sh
-export GST_PLUGIN_PATH=/usr/local/lib/x86_64-linux-gnu/gstreamer-1.0
+export GST_PLUGIN_PATH=/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0
 ```
+For a **local** build also set `LD_LIBRARY_PATH` to the vendored SDK dir + `agora/libagorac`
+(the script prints the exact lines). Agora SDK log: `~/.agora/agorasdk.log` (encrypted).
 
-Common element properties (see README for full pipeline examples):
-`appid` (app id **or** token), `channel`, `userid` (optional), `remoteuserid` (subscribe to one
-uid), `audio` (true/false — audio vs video pipeline), `verbose` (logging), plus sink extras like
-`enforce-audio-duration`, `avc-to-annexb`, and `agoraioudp`'s `inport`/`outport`,
-`out-audio-delay`/`out-video-delay` (A/V sync tuning, microseconds), and proxy options
-(`proxy=true`, `proxytimeout`, `proxyips`) for firewalled networks.
+## SDK 4.4.x gotchas (hard-won — do not relearn these)
 
-Agora SDK runtime log: `~/.agora/agorasdk.log`.
+1. **Custom encoded video tracks need non-zero `width`/`height`.** A normal remote subscriber
+   renders **black** if `EncodedVideoFrameInfo.width/height` are 0 (older SDKs inferred them; 4.4.x
+   does not). Dimensions/fps are pulled from the sink caps in `gstagoraioudp.c` and pushed via
+   `agoraio_set_video_dimensions()` into `AgoraIo::_videoWidth/_videoHeight/_videoFps`. Caps arrive
+   before `agora_ctx` exists (created lazily on the first buffer), so the values are cached on the
+   element and re-applied in `init_agora()`.
+2. **meson must link the backend with `-Wl,--no-as-needed`.** With the default `--as-needed`,
+   `libgstagorac.so` is dropped and the plugin fails to link (undefined `agoraio_*`). It's passed
+   in `link_args`, after the plugin objects.
+3. **`libaosl.so` is a new required runtime lib** in 4.4.x (`libagora_rtc_sdk.so` NEEDs it, plus
+   `libagora-fdkaac.so`). `install.sh` globs `*.so` so it's always copied — do not revert to an
+   explicit file list.
+4. **Codec: send H.264.** `SenderOptions` defaults to **H.265** in 4.4.x, but the per-frame
+   `EncodedVideoFrameInfo.codecType = VIDEO_CODEC_H264` (agoraio.cpp) is what the receiver uses, so
+   that line is required; the track-level `SenderOptions.codecType` is not.
+5. **Observer signatures are `SDK_BUILD_NUM`-guarded.** `observer/userobserver.{h,cpp}` uses
+   `#if SDK_BUILD_NUM>=675674` for the 4.4.x forms of `onUserVideoTrackSubscribed`
+   (`const VideoTrackInfo&`), `onLocalVideoTrackStateChanged` (`LOCAL_VIDEO_STREAM_REASON`), and
+   `add/removeRenderer` (now take a `VIDEO_MODULE_POSITION`). Keep both branches if touching them.
+6. **License check is a no-op** for this SDK build: `verifyLicense()` (`helpers/utilities.cpp`) only
+   reads `certificate.bin` under `#if SDK_BUILD_NUM==110077`; for 4.4.x it returns 0. No cert file
+   is needed.
+7. **Region: mainland China is excluded** — `scfg.areaCode = AREA_CODE_OVS` in
+   `AgoraIo::initAgoraService()`. This is a deliberate fork behaviour.
 
-## Tests
+## Conventions
 
-Test programs live in a `test/` directory (referenced by README but not tracked in git). Compile
-all with `./c` and run a single test by its name, e.g. `./endtest2`. Proxy test code is in
-`test/test_proxy.c`.
+- `libgstagorac.so` is a **build artifact** and is git-ignored (do not commit it). Vendored SDK
+  `.so` files under `agora/sdk/` are tracked.
+- SDK runtime droppings (`agora*.dat`, `agora_cache.db`, `common_resource/`, crash contexts) are
+  git-ignored.
+- A/V sync: `out-audio-delay`/`out-video-delay` (ms) compensate for the local device's audio-vs-video
+  output latency; still needed (the SDK doesn't do this for you). Untouched by the upgrade.
