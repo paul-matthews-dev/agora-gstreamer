@@ -2,7 +2,7 @@
 CC = g++  # C compiler
 
 FLAGS        = -std=c++11  -I${AGORA_SDK_DIR}/agora_sdk/include 
-CFLAGS       = -fPIC -g -std=c++11 
+CFLAGS       = -fPIC -g -std=c++11 -ldl
 LDFLAGS      = -shared
 
 TARGET_LIB = libgstagorac.so

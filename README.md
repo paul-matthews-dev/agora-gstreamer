@@ -186,3 +186,7 @@ established within the timeout. Optionally supply `proxytimeout=` and
 - Runtime files created by the SDK (`agora*.dat`, `agora_cache.db`, `common_resource/`,
   crash-context dumps) are git-ignored.
 - The Agora SDK writes its own log to `~/.agora/agorasdk.log` (encrypted).
+- The SDK's `libaosl` layer would otherwise spam **syslog** with a harmless
+  `AOSL: Java VM not set ...` warning on non-Android platforms. The backend silences all
+  `libaosl` logging at startup (via `aosl_set_vlog_func`), so nothing reaches the system
+  journal; the RTC SDK's own `agorasdk.log` is unaffected.

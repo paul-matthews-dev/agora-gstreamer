@@ -81,6 +81,14 @@ For a **local** build also set `LD_LIBRARY_PATH` to the vendored SDK dir + `agor
    is needed.
 7. **Region: mainland China is excluded** — `scfg.areaCode = AREA_CODE_OVS` in
    `AgoraIo::initAgoraService()`. This is a deliberate fork behaviour.
+8. **`libaosl` spams syslog.** The 4.4.x `libaosl.so` logs a harmless
+   `AOSL: Java VM not set ...` warning via `vsyslog` (floods the journal on non-Android
+   platforms). It is emitted **unconditionally** — the `aosl_set_log_level` threshold does
+   NOT gate it. `AgoraIo::initAgoraService()` calls `quietAoslLogging()`, which resolves
+   `aosl_set_vlog_func` from the already-loaded `libaosl` via `dlopen`/`dlsym` (no header is
+   shipped) and installs a no-op sink, silencing all `libaosl` logging. This needs `-ldl`
+   in `agora/libagorac/makefile`. The no-op ignores its args, so it's safe regardless of the
+   real callback signature — don't "improve" it into reading the format string.
 
 ## Conventions
 

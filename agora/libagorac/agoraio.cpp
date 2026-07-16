@@ -2,6 +2,8 @@
 
 #include <stdbool.h>
 #include <fstream>
+#include <dlfcn.h>
+#include <cstdarg>
 
 #include <string>
 #include <cstring>
@@ -90,8 +92,29 @@ AgoraIo::AgoraIo(const bool& verbose,
    _activeUsers.clear();
 }
 
+// libaosl spams syslog with a harmless "Java VM not set ..." warning on
+// non-Android platforms, and it is emitted unconditionally (the log-level knob
+// does not gate it). aosl ships no header, so at runtime we replace its logging
+// sink (aosl_set_vlog_func) with a no-op, which silences all libaosl syslog
+// output. The no-op ignores its arguments, so it is safe regardless of the exact
+// callback signature. The Agora RTC SDK's own log (~/.agora/agorasdk.log) is
+// separate and unaffected.
+static void aoslNoopVlog(int /*level*/, const char* /*fmt*/, va_list /*ap*/) {}
+
+static void quietAoslLogging()
+{
+    void* h = dlopen("libaosl.so", RTLD_LAZY);
+    if(!h) return;
+    typedef void (*aosl_vlog_func_t)(int, const char*, va_list);
+    typedef void (*aosl_set_vlog_func_fn)(aosl_vlog_func_t);
+    auto setVlog = (aosl_set_vlog_func_fn)dlsym(h, "aosl_set_vlog_func");
+    if(setVlog) setVlog(&aoslNoopVlog);
+}
+
 bool AgoraIo::initAgoraService(const std::string& appid)
 {
+    quietAoslLogging();
+
     _service = createAgoraService();
     if (!_service)
     {
