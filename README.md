@@ -44,21 +44,29 @@ The C element parses properties/caps and forwards frames across a flat C ABI int
 ## Requirements
 
 - aarch64 (ARM64) Linux — Ubuntu 20.04/22.04 or Raspberry Pi OS (64-bit)
-- GStreamer 1.x plus the standard plugin sets, and build tooling
 
-Install dependencies:
+**Build dependencies** (toolchain + the dev headers the backend/plugin compile and link against):
 
 ```sh
 sudo apt-get update
 sudo apt-get install -y \
-  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev \
-  gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad \
-  gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-alsa \
-  meson ninja-build build-essential pkg-config git cmake \
-  libx264-dev x264 libopus-dev nasm \
-  libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libswscale-dev \
-  libssl-dev zlib1g-dev
+  build-essential meson ninja-build pkg-config git \
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  libx264-dev libopus-dev libavcodec-dev libavutil-dev libswscale-dev
 ```
+
+**Runtime dependencies** (the GStreamer element sets the pipelines use):
+
+```sh
+sudo apt-get install -y \
+  gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-alsa
+```
+
+- `gstreamer1.0-plugins-ugly` provides `x264enc`; `gstreamer1.0-libav` provides `avdec_h264`
+  (to decode the remote video); `gstreamer1.0-alsa` is only needed for the ALSA audio bridge.
+- `gstreamer1.0-plugins-bad` is **not** needed for the examples here — add it only if your
+  pipeline uses `h264parse`, `rtmpsink`, etc.
 
 The Agora SDK itself is already vendored under `agora/sdk/agora_sdk_aarch64_4.4.32/` — no
 separate download is needed.
