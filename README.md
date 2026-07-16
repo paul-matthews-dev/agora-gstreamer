@@ -1,233 +1,192 @@
-A gstreamer wrapper for Agora Linux SDK (sink and src)
-## Server Choice
-A t3.medium AWS instance with 30GB of disk is a good starting point.
-Ubuntu 20.04 and 22.04 both work fine.     
-Intel or arm are supported.
+# agora-gstreamer (agoraioudp)
 
+A GStreamer plugin that bridges a live [Agora](https://www.agora.io) RTC channel to a
+local pipeline, built on the Agora Linux RTC SDK. This fork is trimmed to the single
+**`agoraioudp`** element and targets **aarch64 (ARM64) Linux** with the **Agora Linux RTC
+SDK v4.4.32** (SDK build 675674), which is vendored in-tree.
 
+It is used to publish a camera feed from an ARM device (e.g. a Raspberry Pi field unit)
+into an Agora channel and to pull the remote participant's media back out — all as
+ordinary GStreamer pipeline segments.
 
-## Install gstreamer and dependencies
-   sudo apt-get update     
-   sudo apt-get --fix-broken --fix-missing install -y libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev libgstreamer-plugins-bad1.0-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-tools gstreamer1.0-x gstreamer1.0-alsa gstreamer1.0-gl gstreamer1.0-gtk3 gstreamer1.0-qt5 gstreamer1.0-pulseaudio   
+## What it does
 
-## Install additional libraries:
+`agoraioudp` is a bidirectional element:
 
-   sudo apt-get install -y meson libswscale-dev x264 libx264-dev libopus-dev   
-   sudo apt install -y build-essential git libpcre3 libpcre3-dev zlib1g zlib1g-dev libssl-dev unzip     
-   sudo apt install -y libavcodec-dev libavformat-dev libavutil-dev nasm libavfilter-dev libopus-dev   
-   
-## Test gstreamer install
-gst-launch-1.0 -v videotestsrc pattern=ball is-live=true ! video/x-raw,format=I420,width=320,height=180,framerate=60/1 ! queue ! fakesink    
- 
-## Build and install agora gstreamer plugins
-   After installing the libraries above on your Ubuntu system you can build the latest Intel version (or ARM if required)           
-   Clone this repo using git clone       
-   
-   cd agora-gstreamer/build     
-  ./build_all_4.2.30.sh    
-  
-  If no errors are printed the new agora gs plugins will be installed on the system ready for use
+- **Video → Agora**: its sink pad accepts encoded **H.264** (byte-stream) and publishes it
+  to the channel.
+- **Video ← Agora**: its src pad emits the remote participant's encoded **H.264**, ready to
+  feed `decodebin`.
+- **Audio** is bridged over local UDP so it can live in a separate pipeline/process:
+  - audio **from** Agora is sent as raw PCM (`S16LE`, 48 kHz, mono) to `host:outport`,
+  - audio **to** Agora is read as Opus from `host:inport`.
 
+Fork-specific behaviour:
 
-## Pipeline Configuration Properties
+- **Region: mainland China is excluded** (`AREA_CODE_OVS`) for every connection.
+- **Codec: H.264** (matches `x264enc`/hardware H.264 output; the SDK is told per-frame).
+- **Video dimensions/framerate are taken from the pipeline caps**, so eth/4G resolution
+  switches are handled automatically.
 
- appid -- sets agora app id or token
- 
- channel  -- sets agora channel id
+## How it's put together
 
- userid   -- sets agora userid to connect with (optional)
- 
- remoteuserid -- specifies a single userid to subscribe to (optional)
+```
+GStreamer pipeline (C plugin)          gst-agora/plugin-src/agoraioudp/gstagoraioudp.c
+        |  extern "C" ABI (agorac.h)
+libgstagorac.so  (C++ backend)         agora/libagorac/  -> class AgoraIo
+        |
+Agora Linux RTC SDK 4.x                agora/sdk/agora_sdk_aarch64_4.4.32/
+```
 
- audio -- boolean (true/false) to specify if pipeline is audio     
- 
- verbose -- boolean (true/false) to include logging output 
- 
+The C element parses properties/caps and forwards frames across a flat C ABI into the C++
+`AgoraIo` class, which owns the Agora service, connection, publish/subscribe and A/V sync.
 
-## Run and test
-You must always run the following export before using any of these plugins     
+## Requirements
 
-   export GST_PLUGIN_PATH=/usr/local/lib/x86_64-linux-gnu/gstreamer-1.0   
-   
+- aarch64 (ARM64) Linux — Ubuntu 20.04/22.04 or Raspberry Pi OS (64-bit)
 
- ## agoraioudp
+**Build dependencies** (toolchain + the dev headers the backend/plugin compile and link against):
 
-<ins>Video in/out from webcam</ins>     
- 
-gst-launch-1.0 -e v4l2src ! image/jpeg,width=640,height=360 ! jpegdec ! queue ! videoconvert ! x264enc key-int-max=60 tune=zerolatency ! queue ! agoraioudp appid=xxx channel=xxx outport=7372 inport=7373 verbose=false  ! queue ! decodebin ! queue ! glimagesink
+```sh
+sudo apt-get update
+sudo apt-get install -y \
+  build-essential meson ninja-build pkg-config git \
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+  libx264-dev libopus-dev libavcodec-dev libavutil-dev libswscale-dev
+```
 
-<ins>Audio out of Agora to speaker </ins>     
+**Runtime dependencies** (the GStreamer element sets the pipelines use):
 
-gst-launch-1.0 -v udpsrc port=7372 ! audio/x-raw,format=S16LE,channels=1,rate=48000,layout=interleaved ! audioconvert ! pulsesink
+```sh
+sudo apt-get install -y \
+  gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-ugly gstreamer1.0-libav gstreamer1.0-alsa
+```
 
-<ins>Audio in from mic</ins>     
+- `gstreamer1.0-plugins-ugly` provides `x264enc`; `gstreamer1.0-libav` provides `avdec_h264`
+  (to decode the remote video); `gstreamer1.0-alsa` is only needed for the ALSA audio bridge.
+- `gstreamer1.0-plugins-bad` is **not** needed for the examples here — add it only if your
+  pipeline uses `h264parse`, `rtmpsink`, etc.
 
-gst-launch-1.0 -v pulsesrc ! audioconvert ! opusenc ! udpsink host=127.0.0.1 port=7373
+The Agora SDK itself is already vendored under `agora/sdk/agora_sdk_aarch64_4.4.32/` — no
+separate download is needed.
 
-<ins>Audio in from mic multiple cast</ins>   
+## Building
 
-gst-launch-1.0 -v pulsesrc ! audioconvert ! opusenc ! udpsink host=224.1.1.1 port=7373 auto-multicast=true
+Two scripts are provided; both build the C++ backend (`libgstagorac.so`) and the
+`agoraioudp` plugin.
 
-<ins>Token example</ins>
+### System install
 
-gst-launch-1.0 -v videotestsrc pattern=ball is-live=true ! video/x-raw,format=I420,width=320,height=180,framerate=60/1 ! videoconvert ! x264enc key-int-max=60 tune=zerolatency !  queue ! agoraioudp appid="006e24ca3eb5db7440ea673061316187b06IAB63A2UQqvEo8f1Ou8yGA2d4nYbefdEqP+/YTS0z+JJR0kQgrCBkyDDIgBEAvsBNXKGYQQAAQDFLoVhAgDFLoVhAwDffFLoVhBADFLoVh"  channel=ttt userid=1001 outport=7372 inport=7373 out-audio-delay=0 out-video-delay=70 verbose=false ! fakesink sync=false
+Installs the backend + SDK libraries into `/usr/local/lib` and the plugin into the
+GStreamer plugin dir (needs `sudo`):
 
-<ins>Synchronization</ins>
+```sh
+cd build
+./build_all_aarch64_4.4.32.sh
+```
 
-The Agora SDK returns encoded audio and video in sync with one another. Your system may have a different 'decode and present' path duration for audio or video. You can adjust the delay on either using the out-audio-delay=0 and out-video-delay=70 params in the agoraioudp plugin. Units a microseconds.   
+### Local / in-place build (no install)
 
-<ins>Firewall Proxy</ins>  
-add proxy=true to the agoraioudp param list and the plugin will use the proxy service if the call can't connect after a default timeout of 10000 ms.   
-For the proxy to work you need to whitelist the ip:ports for the relevant region(s) listed here: https://docs-preprod.agora.io/en/Video/cloud_proxy_na?platform=Android     
+Builds everything inside the repo and installs **nothing** — useful for testing without
+touching an existing system install:
 
-Additional optional params are:      
-proxytimeout=10000 proxyips=128.1.77.34,128.1.78.146      
-proxyips are the signalling ips to use.
-test/test_proxy.c has test code for proxy. 
- 
-   
- ## agorasink
-   
-<ins>Video into Agora from test source:</ins>    
+```sh
+cd build
+./build_local_aarch64_4.4.32.sh
+```
 
-gst-launch-1.0 -v videotestsrc pattern=ball is-live=true ! video/x-raw,format=I420,width=320,height=180,framerate=60/1   ! videoconvert ! x264enc key-int-max=60 tune=zerolatency ! agorasink appid=xxx channel=test 
+It prints the exact `LD_LIBRARY_PATH` / `GST_PLUGIN_PATH` to use afterwards.
 
-<ins>Video into Agora from webcam source:</ins>     
-
- gst-launch-1.0 v4l2src ! jpegdec ! videoconvert ! x264enc key-int-max=60 tune=zerolatency ! agorasink appid=xxx channel=test 
- 
-<ins>Audio into Agora from test source:</ins>    
-
-gst-launch-1.0 -v audiotestsrc wave=sine ! audioconvert ! opusenc ! agorasink audio=true appid=xxx channel=test 
-
-<ins>Video into Agora with audio from udp port 7373</ins>   
-agorasink appid=xxx channel=test inport=7373
-
-<ins>Audio into Agora from microphone</ins>    
-gst-launch-1.0 -v pulsesrc ! audioconvert ! opusenc ! agorasink audio=true appid=xxx channel=xxx
-
-<ins>Audio into Agora from AAC file</ins>    
-gst-launch-1.0 urisourcebin uri=https://filesamples.com/samples/audio/aac/sample3.aac   ! aacparse ! faad ! audioresample ! audioconvert ! opusenc bitrate=128000 ! queue ! agorasink audio=true appid=xxx channel=xxx enforce-audio-duration=true
-
-<ins>Video into Agora from mp4 file</ins>    
-gst-launch-1.0  urisourcebin uri=https://sa-utils.agora.io/media/v223.mp4  ! decodebin  ! x264enc key-int-max=60 tune=zerolatency ! queue ! agorasink appid=xxx channel=xxx
-
-<ins>RTSP from camera on network</ins>    
-
-gst-launch-1.0 rtspsrc location=rtsp://admin:eee@1.2.3.4:2036/Streaming/Channels/102 latency=0 buffer-mode=auto ! decodebin ! queue ! videoconvert ! x264enc key-int-max=60 tune=zerolatency  !  agorasink appid=xxx channel=xxx   
-
-<ins>RTSP without h264 transcode (avc-to-annexb)</ins>       
-
-gst-launch-1.0  rtspsrc location=rtsp://admin:rrr@1.2.21.50:6005/Streaming/Channels/102 latency=0 buffer-mode=auto ! rtph264depay ! h264parse ! video/x-h264, stream-format=avc, alignment=au ! agorasink appid=20b7c51ff4c644ab80cf5a4e646b0537 channel=test2 avc-to-annexb=true       
-
-<ins>MP4 audio and video</ins>       
-gst-launch-1.0 urisourcebin uri=https://chatcatchat.s3.amazonaws.com/fwtest/badsync.mp4 name=src \
-  src. ! decodebin name=decoder \
-  decoder. ! queue name=video_queue ! videoconvert ! x264enc key-int-max=60 tune=zerolatency ! queue ! agorasink appid=xxx channel=xxx inport=7373 \
-  decoder. ! queue name=audio_queue ! audioresample ! audioconvert ! opusenc bitrate=128000 ! udpsink host=127.0.0.1 port=7373
-
-
- ## agorasrc
-
-<ins>Video out of Agora:</ins>    
-   agorasrc can be used to read encoded h264 from an agora channel, here is an example pipleline:     
-   
-   gst-launch-1.0 agorasrc verbose=false appid=xxx channel=xxx ! decodebin ! glimagesink     
-
-   gst-launch-1.0 agorasrc verbose=false appid=xxx channel=xxx ! decodebin ! autovideosink      
-
-   gst-launch-1.0 agorasrc appid=xxx channel=xxx ! decodebin ! videoconvert ! jpegenc ! multifilesink location=%05d.jpg
-
-   where appid and channel is same as agorasink. 
-   
- <ins>Audio out of Agora</ins>
- 
-   gst-launch-1.0 agorasrc audio=true verbose=false appid=xxx channel=gstreamer ! filesink location=test.raw     
-   
-   gst-launch-1.0 agorasrc audio=true verbose=false appid=xxx channel=xxx ! audio/x-raw,format=S16LE,channels=1,rate=48000,layout=interleaved ! audioconvert ! pulsesink
-
-## How to run the test programs:
-
-$ cd agora-gstreamer/test
-
-To compile all test programs:
-
-$ ./c
-
-To run any test just type its name:
-
-$ ./endtest2
-
-
-## Camera Debug on Linux
-sudo apt-get install -y v4l-utils    
-v4l2-ctl --list-formats-ext --device=/dev/video1    
-v4l2-ctl     
-v4l2-ctl --list-devices 
-
-gst-launch-1.0 -v videotestsrc pattern=ball is-live=true ! video/x-raw,format=I420,width=1280,height=720,framerate=60/1 ! videoconvert ! x264enc key-int-max=60 tune=zerolatency !  queue ! decodebin ! queue ! autovideosink
-
-
- 
- ## Developer Notes
- https://docs.agora.io/cn/RTSA/downloads?platform=Linux
- 
- gst_agorasink_chain(...) in gstagorasink.c  is the main logic and entrypoint    
- meson.build specifies the files to be built    
- agorac.cpp is related to RTMPG project which we use here as a .so library  
- Uses this SDK wget https://download.agora.io/sdk/release/Agora-RTC-x86_64-linux-gnu-v3.4.217.tgz     
- tar -xvzf Agora-RTC-x86_64-linux-gnu-v3.4.217.tgz   
- sudo apt install cmake    
- sudo apt-get update    
- sudo apt-get install -y build-essential     
- cd  agora_rtc_sdk/example        
- ./build-x86_64.sh    
- LD_LIBRARY_PATH=/home/ben/agora_rtc_sdk/agora_sdk    
- export LD_LIBRARY_PATH     
- test data https://drive.google.com/file/d/1m1PzTCiV1AKy_mVYZA5la9WQtZu-acKI/view?usp=sharing     
-./sample_send_h264_dual_stream --token xxxx --channelId iii --HighVideoFile ~/pro/agora_rtc_sdk/example/test_data/send_video.h264 --LowVideoFile ~/pro/agora_rtc_sdk/example/test_data/send_video.h264
-
- 20b7c51ff4c644ab80cf5a4e646b05377
-
-SDK Log ~/.agora/agorasdk.log
-
-Jetson: Linux kernel architecture is aarch64 / arm64 (64-bit) (?)
-PiL: gnueabihf (?)
-
-
-## Creating and installing a binary release:
-
-To create a binary release:
-
-cd release
-./make-release
-
-To install the release on the target machine:
-
-cd release
-./install
-
-
-## Cross compilation of Arm (Target) on x86 (Host)
-
-(1) install gcc and G++ for arm 
-
-sudo apt-get install gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
-
-(2) make sure you set the environment variable INSTALL_PATH where the library will be copied to:
-
-for example:
-
-export INSTALL_PATH=/home/ubuntu/arm-dist
-
-(3) copy  the dir /usr/include/aarch64-linux-gnu from the target to the host
-
-this will allow g++-aarch64-linux-gnu to find the required libraries on the host
-
-(4) compile libagorac by specifying arm config in cmake:
-
-mkdir build && cd build && cmake -DCMAKE_TOOLCHAIN_FILE=arm64.cmake .. && make && sudo make install
-
-(5) copy the installation files from host to target and test there
-
-
+## Running
+
+After a **system install**, point GStreamer at the plugin dir:
+
+```sh
+export GST_PLUGIN_PATH=/usr/local/lib/aarch64-linux-gnu/gstreamer-1.0
+```
+
+After a **local build**, also add the repo libraries to the loader path (the local build
+script prints these):
+
+```sh
+export LD_LIBRARY_PATH=<repo>/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk:<repo>/agora/libagorac
+export GST_PLUGIN_PATH=<repo>/gst-agora/build_local/plugin-src
+```
+
+Verify the element loads:
+
+```sh
+gst-inspect-1.0 agoraioudp
+```
+
+### Example: publish a camera and display the remote video
+
+```sh
+gst-launch-1.0 -e \
+  v4l2src device=/dev/video0 ! image/jpeg,width=1280,height=960,framerate=15/1 ! jpegdec ! \
+  videoconvert ! x264enc key-int-max=30 tune=zerolatency bitrate=1500 speed-preset=veryfast ! \
+  queue ! agoraioudp appid=YOUR_APPID channel=YOUR_CHANNEL userid=101 outport=7372 inport=7373 ! \
+  queue ! decodebin ! queue ! autovideosink
+```
+
+> `agoraioudp` accepts ANY caps, so if a branch downstream prefers `avc`, pin
+> `video/x-h264,stream-format=byte-stream,alignment=au` before the element to keep
+> `x264enc` in byte-stream mode.
+
+### Example: audio bridge (companion pipelines)
+
+Audio out of Agora to the speaker (reads `outport`):
+
+```sh
+gst-launch-1.0 -v udpsrc port=7372 ! audio/x-raw,format=S16LE,channels=1,rate=48000,layout=interleaved ! \
+  audioconvert ! autoaudiosink
+```
+
+Audio from the mic into Agora (writes `inport`):
+
+```sh
+gst-launch-1.0 -v alsasrc ! audioconvert ! opusenc ! udpsink host=127.0.0.1 port=7373
+```
+
+## Element properties
+
+| Property | Default | Description |
+|---|---|---|
+| `appid` | — | Agora App ID **or** a token |
+| `channel` | — | Agora channel name |
+| `userid` | — | Agora user id (optional; auto-assigned if unset) |
+| `mode` | `3` | `1` = no media, `2` = video only, `3` = video + audio |
+| `audio` | `false` | Treat this element's pads as audio instead of video |
+| `host` | `127.0.0.1` | UDP host for the audio bridge |
+| `outport` | `7374` | UDP port audio **from** Agora is sent to (PCM S16LE) |
+| `inport` | `7373` | UDP port audio **to** Agora is read from (Opus) |
+| `out-audio-delay` / `out-video-delay` | `0` | Delay (ms) on media **from** Agora → pipeline, for A/V sync |
+| `in-audio-delay` / `in-video-delay` | `0` | Delay (ms) on media **from** pipeline → Agora |
+| `transcode` | `false` | Transcode to respect a requested bitrate |
+| `proxy` | `false` | Route via the Agora cloud proxy (firewalled networks) |
+| `proxyips` | — | Comma-separated proxy signalling IPs |
+| `proxytimeout` | `10000` | Timeout (ms) before falling back to the proxy |
+| `verbose` | `false` | Verbose logging |
+
+### A/V synchronisation
+
+The SDK delivers audio and video in sync over the network, but a device's local audio and
+video output paths can have different latency. Use `out-audio-delay` / `out-video-delay`
+(milliseconds) to compensate on playback.
+
+### Firewalled networks (proxy)
+
+Add `proxy=true` to route through the Agora cloud proxy if a direct connection can't be
+established within the timeout. Optionally supply `proxytimeout=` and
+`proxyips=<ip1,ip2>`. Whitelist the relevant region IP:ports per Agora's cloud-proxy docs.
+
+## Notes
+
+- Runtime files created by the SDK (`agora*.dat`, `agora_cache.db`, `common_resource/`,
+  crash-context dumps) are git-ignored.
+- The Agora SDK writes its own log to `~/.agora/agorasdk.log` (encrypted).
+- The SDK's `libaosl` layer would otherwise spam **syslog** with a harmless
+  `AOSL: Java VM not set ...` warning on non-Android platforms. The backend silences all
+  `libaosl` logging at startup (via `aosl_set_vlog_func`), so nothing reaches the system
+  journal; the RTC SDK's own `agorasdk.log` is unaffected.

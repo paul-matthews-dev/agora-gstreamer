@@ -1,0 +1,127 @@
+In file included from agoraio.h:18,
+                 from agorac.cpp:31:
+observer/userobserver.h:140:50: error: ‘agora::rtc::LOCAL_VIDEO_STREAM_ERROR’ has not been declared
+  140 |                                      agora::rtc::LOCAL_VIDEO_STREAM_ERROR errorCode) override {}
+      |                                                  ^~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h:125:8: error: ‘void UserObserver::onUserVideoTrackSubscribed(agora::user_id_t, agora::rtc::VideoTrackInfo, agora::agora_refptr<agora::rtc::IRemoteVideoTrack>)’ marked ‘override’, but does not override
+  125 |   void onUserVideoTrackSubscribed(
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h:138:8: error: ‘void UserObserver::onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack>, agora::rtc::LOCAL_VIDEO_STREAM_STATE, int)’ marked ‘override’, but does not override
+  138 |   void onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h: In member function ‘void UserObserver::unsetVideoFrameObserver()’:
+observer/userobserver.h:98:64: error: no matching function for call to ‘agora::rtc::IRemoteVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>&)’
+   98 |       remote_video_track_->removeRenderer(video_frame_observer_);
+      |                                                                ^
+In file included from helpers/context.h:14,
+                 from agorac.cpp:23:
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note: candidate: ‘virtual bool agora::rtc::IVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>, agora::media::base::VIDEO_MODULE_POSITION, aosl_ref_t)’
+  167 |   virtual bool removeRenderer(agora_refptr<IVideoSinkBase> videoRenderer, media::base::VIDEO_MODULE_POSITION position, aosl_ref_t ares = AOSL_REF_INVALID) = 0;
+      |                ^~~~~~~~~~~~~~
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note:   candidate expects 3 arguments, 1 provided
+In file included from observer/../agoraio.h:18,
+                 from observer/connectionobserver.cpp:5:
+observer/../observer/userobserver.h:140:50: error: ‘agora::rtc::LOCAL_VIDEO_STREAM_ERROR’ has not been declared
+  140 |                                      agora::rtc::LOCAL_VIDEO_STREAM_ERROR errorCode) override {}
+      |                                                  ^~~~~~~~~~~~~~~~~~~~~~~~
+observer/../observer/userobserver.h:125:8: error: ‘void UserObserver::onUserVideoTrackSubscribed(agora::user_id_t, agora::rtc::VideoTrackInfo, agora::agora_refptr<agora::rtc::IRemoteVideoTrack>)’ marked ‘override’, but does not override
+  125 |   void onUserVideoTrackSubscribed(
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/../observer/userobserver.h:138:8: error: ‘void UserObserver::onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack>, agora::rtc::LOCAL_VIDEO_STREAM_STATE, int)’ marked ‘override’, but does not override
+  138 |   void onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/../observer/userobserver.h: In member function ‘void UserObserver::unsetVideoFrameObserver()’:
+observer/../observer/userobserver.h:98:64: error: no matching function for call to ‘agora::rtc::IRemoteVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>&)’
+   98 |       remote_video_track_->removeRenderer(video_frame_observer_);
+      |                                                                ^
+In file included from observer/../helpers/context.h:14,
+                 from observer/../agoraio.h:11,
+                 from observer/connectionobserver.cpp:5:
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note: candidate: ‘virtual bool agora::rtc::IVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>, agora::media::base::VIDEO_MODULE_POSITION, aosl_ref_t)’
+  167 |   virtual bool removeRenderer(agora_refptr<IVideoSinkBase> videoRenderer, media::base::VIDEO_MODULE_POSITION position, aosl_ref_t ares = AOSL_REF_INVALID) = 0;
+      |                ^~~~~~~~~~~~~~
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note:   candidate expects 3 arguments, 1 provided
+In file included from observer/userobserver.cpp:7:
+observer/userobserver.h:140:50: error: ‘agora::rtc::LOCAL_VIDEO_STREAM_ERROR’ has not been declared
+  140 |                                      agora::rtc::LOCAL_VIDEO_STREAM_ERROR errorCode) override {}
+      |                                                  ^~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h:125:8: error: ‘void UserObserver::onUserVideoTrackSubscribed(agora::user_id_t, agora::rtc::VideoTrackInfo, agora::agora_refptr<agora::rtc::IRemoteVideoTrack>)’ marked ‘override’, but does not override
+  125 |   void onUserVideoTrackSubscribed(
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h:138:8: error: ‘void UserObserver::onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack>, agora::rtc::LOCAL_VIDEO_STREAM_STATE, int)’ marked ‘override’, but does not override
+  138 |   void onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h: In member function ‘void UserObserver::unsetVideoFrameObserver()’:
+observer/userobserver.h:98:64: error: no matching function for call to ‘agora::rtc::IRemoteVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>&)’
+   98 |       remote_video_track_->removeRenderer(video_frame_observer_);
+      |                                                                ^
+In file included from observer/userobserver.h:20,
+                 from observer/userobserver.cpp:7:
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note: candidate: ‘virtual bool agora::rtc::IVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>, agora::media::base::VIDEO_MODULE_POSITION, aosl_ref_t)’
+  167 |   virtual bool removeRenderer(agora_refptr<IVideoSinkBase> videoRenderer, media::base::VIDEO_MODULE_POSITION position, aosl_ref_t ares = AOSL_REF_INVALID) = 0;
+      |                ^~~~~~~~~~~~~~
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note:   candidate expects 3 arguments, 1 provided
+observer/userobserver.cpp: In member function ‘void UserObserver::onUserVideoTrackSubscribed(agora::user_id_t, agora::rtc::VideoTrackInfo, agora::agora_refptr<agora::rtc::IRemoteVideoTrack>)’:
+observer/userobserver.cpp:73:59: error: no matching function for call to ‘agora::rtc::IRemoteVideoTrack::addRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>&)’
+   73 |     remote_video_track_->addRenderer(video_frame_observer_);
+      |                                                           ^
+In file included from observer/userobserver.h:20,
+                 from observer/userobserver.cpp:7:
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:157:16: note: candidate: ‘virtual bool agora::rtc::IVideoTrack::addRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>, agora::media::base::VIDEO_MODULE_POSITION, aosl_ref_t)’
+  157 |   virtual bool addRenderer(agora_refptr<IVideoSinkBase> videoRenderer, media::base::VIDEO_MODULE_POSITION position, aosl_ref_t ares = AOSL_REF_INVALID) = 0;
+      |                ^~~~~~~~~~~
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:157:16: note:   candidate expects 3 arguments, 1 provided
+In file included from agoraio.h:18,
+                 from agoraio.cpp:1:
+observer/userobserver.h:140:50: error: ‘agora::rtc::LOCAL_VIDEO_STREAM_ERROR’ has not been declared
+  140 |                                      agora::rtc::LOCAL_VIDEO_STREAM_ERROR errorCode) override {}
+      |                                                  ^~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h:125:8: error: ‘void UserObserver::onUserVideoTrackSubscribed(agora::user_id_t, agora::rtc::VideoTrackInfo, agora::agora_refptr<agora::rtc::IRemoteVideoTrack>)’ marked ‘override’, but does not override
+  125 |   void onUserVideoTrackSubscribed(
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h:138:8: error: ‘void UserObserver::onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack>, agora::rtc::LOCAL_VIDEO_STREAM_STATE, int)’ marked ‘override’, but does not override
+  138 |   void onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
+      |        ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+observer/userobserver.h: In member function ‘void UserObserver::unsetVideoFrameObserver()’:
+observer/userobserver.h:98:64: error: no matching function for call to ‘agora::rtc::IRemoteVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>&)’
+   98 |       remote_video_track_->removeRenderer(video_frame_observer_);
+      |                                                                ^
+In file included from helpers/context.h:14,
+                 from agoraio.h:11,
+                 from agoraio.cpp:1:
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note: candidate: ‘virtual bool agora::rtc::IVideoTrack::removeRenderer(agora::agora_refptr<agora::rtc::IVideoSinkBase>, agora::media::base::VIDEO_MODULE_POSITION, aosl_ref_t)’
+  167 |   virtual bool removeRenderer(agora_refptr<IVideoSinkBase> videoRenderer, media::base::VIDEO_MODULE_POSITION position, aosl_ref_t ares = AOSL_REF_INVALID) = 0;
+      |                ^~~~~~~~~~~~~~
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraVideoTrack.h:167:16: note:   candidate expects 3 arguments, 1 provided
+In file included from /usr/include/aarch64-linux-gnu/c++/10/bits/c++allocator.h:33,
+                 from /usr/include/c++/10/bits/allocator.h:46,
+                 from /usr/include/c++/10/memory:64,
+                 from agoraio.h:4,
+                 from agoraio.cpp:1:
+/usr/include/c++/10/ext/new_allocator.h: In instantiation of ‘void __gnu_cxx::new_allocator<_Tp>::construct(_Up*, _Args&& ...) [with _Up = UserObserver; _Args = {agora::rtc::ILocalUser*, bool&}; _Tp = UserObserver]’:
+/usr/include/c++/10/bits/alloc_traits.h:512:17:   required from ‘static void std::allocator_traits<std::allocator<_Tp1> >::construct(std::allocator_traits<std::allocator<_Tp1> >::allocator_type&, _Up*, _Args&& ...) [with _Up = UserObserver; _Args = {agora::rtc::ILocalUser*, bool&}; _Tp = UserObserver; std::allocator_traits<std::allocator<_Tp1> >::allocator_type = std::allocator<UserObserver>]’
+/usr/include/c++/10/bits/shared_ptr_base.h:551:39:   required from ‘std::_Sp_counted_ptr_inplace<_Tp, _Alloc, _Lp>::_Sp_counted_ptr_inplace(_Alloc, _Args&& ...) [with _Args = {agora::rtc::ILocalUser*, bool&}; _Tp = UserObserver; _Alloc = std::allocator<UserObserver>; __gnu_cxx::_Lock_policy _Lp = __gnu_cxx::_S_atomic]’
+/usr/include/c++/10/bits/shared_ptr_base.h:682:16:   required from ‘std::__shared_count<_Lp>::__shared_count(_Tp*&, std::_Sp_alloc_shared_tag<_Alloc>, _Args&& ...) [with _Tp = UserObserver; _Alloc = std::allocator<UserObserver>; _Args = {agora::rtc::ILocalUser*, bool&}; __gnu_cxx::_Lock_policy _Lp = __gnu_cxx::_S_atomic]’
+/usr/include/c++/10/bits/shared_ptr_base.h:1371:71:   required from ‘std::__shared_ptr<_Tp, _Lp>::__shared_ptr(std::_Sp_alloc_shared_tag<_Tp>, _Args&& ...) [with _Alloc = std::allocator<UserObserver>; _Args = {agora::rtc::ILocalUser*, bool&}; _Tp = UserObserver; __gnu_cxx::_Lock_policy _Lp = __gnu_cxx::_S_atomic]’
+/usr/include/c++/10/bits/shared_ptr.h:408:59:   required from ‘std::shared_ptr<_Tp>::shared_ptr(std::_Sp_alloc_shared_tag<_Tp>, _Args&& ...) [with _Alloc = std::allocator<UserObserver>; _Args = {agora::rtc::ILocalUser*, bool&}; _Tp = UserObserver]’
+/usr/include/c++/10/bits/shared_ptr.h:859:14:   required from ‘std::shared_ptr<_Tp> std::allocate_shared(const _Alloc&, _Args&& ...) [with _Tp = UserObserver; _Alloc = std::allocator<UserObserver>; _Args = {agora::rtc::ILocalUser*, bool&}]’
+/usr/include/c++/10/bits/shared_ptr.h:875:39:   required from ‘std::shared_ptr<_Tp> std::make_shared(_Args&& ...) [with _Tp = UserObserver; _Args = {agora::rtc::ILocalUser*, bool&}]’
+agoraio.cpp:209:85:   required from here
+/usr/include/c++/10/ext/new_allocator.h:150:4: error: invalid new-expression of abstract class type ‘UserObserver’
+  150 |  { ::new((void *)__p) _Up(std::forward<_Args>(__args)...); }
+      |    ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from agoraio.h:18,
+                 from agoraio.cpp:1:
+observer/userobserver.h:35:7: note:   because the following virtual functions are pure within ‘UserObserver’:
+   35 | class UserObserver : public agora::rtc::ILocalUserObserver {
+      |       ^~~~~~~~~~~~
+In file included from helpers/context.h:9,
+                 from agoraio.h:11,
+                 from agoraio.cpp:1:
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraLocalUser.h:1300:16: note:     ‘virtual void agora::rtc::ILocalUserObserver::onLocalVideoTrackStateChanged(agora::agora_refptr<agora::rtc::ILocalVideoTrack>, agora::rtc::LOCAL_VIDEO_STREAM_STATE, agora::rtc::LOCAL_VIDEO_STREAM_REASON)’
+ 1300 |   virtual void onLocalVideoTrackStateChanged(agora_refptr<rtc::ILocalVideoTrack> videoTrack,
+      |                ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+/home/vision/agora-gstreamer/agora/sdk/agora_sdk_aarch64_4.4.32/agora_sdk/include/NGIAgoraLocalUser.h:1323:16: note:     ‘virtual void agora::rtc::ILocalUserObserver::onUserVideoTrackSubscribed(agora::user_id_t, const agora::rtc::VideoTrackInfo&, agora::agora_refptr<agora::rtc::IRemoteVideoTrack>)’
+ 1323 |   virtual void onUserVideoTrackSubscribed(user_id_t userId, const VideoTrackInfo& trackInfo,
+      |                ^~~~~~~~~~~~~~~~~~~~~~~~~~
+make: *** [makefile:31: libgstagorac.so] Error 1

@@ -119,6 +119,11 @@ struct _Gstagoraioudp
   GstClockTime                 video_ts;
   GstClockTime                 audio_ts;
 
+  /* encoded video dimensions/fps from sink caps, forwarded to the SDK */
+  gint            vid_width;
+  gint            vid_height;
+  gint            vid_fps;
+
   enum State      state;
 };
 

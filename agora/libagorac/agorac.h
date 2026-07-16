@@ -34,6 +34,11 @@ EXTERNC void agoraio_disconnect(AgoraIoContext_t** ctx);
 							    long timestamp);
 
  EXTERNC void  agoraio_set_paused(AgoraIoContext_t* ctx, int flag);
+
+ // Set the encoded video dimensions/framerate (from the GStreamer caps). These
+ // populate EncodedVideoFrameInfo so remote SDK decoders render correctly; call
+ // whenever caps change (resolution/fps can differ per call type).
+ EXTERNC void  agoraio_set_video_dimensions(AgoraIoContext_t* ctx, int width, int height, int fps);
 								
 
 EXTERNC int  agoraio_send_audio(AgoraIoContext_t* ctx,  

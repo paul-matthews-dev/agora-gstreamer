@@ -134,6 +134,13 @@ int  agoraio_send_video(AgoraIoContext_t* ctx,
 
 }
 
+void agoraio_set_video_dimensions(AgoraIoContext_t* ctx, int width, int height, int fps){
+
+   if(ctx==nullptr)  return;
+
+   ctx->agoraIo->setVideoDimensions(width, height, fps);
+}
+
 void agoraio_disconnect(AgoraIoContext_t** ctx){
 
    if(ctx==nullptr){

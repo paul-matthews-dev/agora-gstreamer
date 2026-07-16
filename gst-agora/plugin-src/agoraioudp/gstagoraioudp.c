@@ -359,7 +359,12 @@ int init_agora(Gstagoraioudp *agoraIO){
       return FALSE;   
    }
 
-   //this function will be called whenever there is a video frame ready 
+   //apply the video dimensions/fps cached from the caps event (which fired before
+   //agora_ctx existed) so encoded frames carry a valid size for remote decoders
+   agoraio_set_video_dimensions(agoraIO->agora_ctx,
+       agoraIO->vid_width, agoraIO->vid_height, agoraIO->vid_fps);
+
+   //this function will be called whenever there is a video frame ready
    agoraio_set_video_out_handler(agoraIO->agora_ctx, handle_video_out_fn, (void*)(agoraIO));
    agoraio_set_audio_out_handler(agoraIO->agora_ctx, handle_audio_out_fn, (void*)(agoraIO));
 
@@ -645,6 +650,23 @@ gst_agoraio_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
        {
         GstCaps * caps;
         gst_event_parse_caps (event, &caps);
+        /* Cache the encoded video dimensions/fps from the caps and forward them to
+           the SDK so remote decoders render correctly (SDK 4.4.x needs a non-zero
+           width/height per frame). Caps arrive before agora_ctx exists (it is created
+           lazily on the first buffer), so we also apply the cached values in
+           init_agora(). This runs again on any mid-stream caps change (eth/4g). */
+        if(caps!=NULL){
+           GstStructure *st = gst_caps_get_structure(caps, 0);
+           gint fps_n=0, fps_d=1;
+           gst_structure_get_int(st, "width", &agoraIO->vid_width);
+           gst_structure_get_int(st, "height", &agoraIO->vid_height);
+           gst_structure_get_fraction(st, "framerate", &fps_n, &fps_d);
+           agoraIO->vid_fps = (fps_d>0) ? (fps_n/fps_d) : 0;
+           if(agoraIO->agora_ctx!=NULL){
+              agoraio_set_video_dimensions(agoraIO->agora_ctx,
+                 agoraIO->vid_width, agoraIO->vid_height, agoraIO->vid_fps);
+           }
+        }
        }
        break;
 

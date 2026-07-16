@@ -56,9 +56,15 @@ void UserObserver::onUserAudioTrackSubscribed(
   }
 }
 
+#if SDK_BUILD_NUM>=675674
+void UserObserver::onUserVideoTrackSubscribed(
+    agora::user_id_t userId, const agora::rtc::VideoTrackInfo& trackInfo,
+    agora::agora_refptr<agora::rtc::IRemoteVideoTrack> videoTrack) {
+#else
 void UserObserver::onUserVideoTrackSubscribed(
     agora::user_id_t userId, agora::rtc::VideoTrackInfo trackInfo,
     agora::agora_refptr<agora::rtc::IRemoteVideoTrack> videoTrack) {
+#endif
  /* AG_LOG(INFO, "onUserVideoTrackSubscribed: userId %s, codecType %d, encodedFrameOnly %d", userId,
          trackInfo.codecType, trackInfo.encodedFrameOnly);*/
   std::lock_guard<std::mutex> _(observer_lock_);
@@ -70,7 +76,8 @@ void UserObserver::onUserVideoTrackSubscribed(
     remote_video_track_->registerMediaPacketReceiver(media_packet_receiver_);
   }
   if (remote_video_track_ && video_frame_observer_) {
-    remote_video_track_->addRenderer(video_frame_observer_);
+    remote_video_track_->addRenderer(video_frame_observer_,
+                                     agora::media::base::POSITION_PRE_RENDERER);
   }
 }
 

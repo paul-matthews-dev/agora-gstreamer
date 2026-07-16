@@ -2,6 +2,8 @@
 
 #include <stdbool.h>
 #include <fstream>
+#include <dlfcn.h>
+#include <cstdarg>
 
 #include <string>
 #include <cstring>
@@ -73,6 +75,9 @@ AgoraIo::AgoraIo(const bool& verbose,
  _enableProxy(enableProxy),
  _proxyConnectionTimeOut((proxyTimeout < 1 ) ? 10000 : proxyTimeout),
  _proxyIps(proxyIps),
+ _videoWidth(0),
+ _videoHeight(0),
+ _videoFps(0),
  _transcodeVideo(enableTranscode),
  _requireTranscode(true), // start off with transcoder
  _requireKeyframe(false),
@@ -87,8 +92,29 @@ AgoraIo::AgoraIo(const bool& verbose,
    _activeUsers.clear();
 }
 
+// libaosl spams syslog with a harmless "Java VM not set ..." warning on
+// non-Android platforms, and it is emitted unconditionally (the log-level knob
+// does not gate it). aosl ships no header, so at runtime we replace its logging
+// sink (aosl_set_vlog_func) with a no-op, which silences all libaosl syslog
+// output. The no-op ignores its arguments, so it is safe regardless of the exact
+// callback signature. The Agora RTC SDK's own log (~/.agora/agorasdk.log) is
+// separate and unaffected.
+static void aoslNoopVlog(int /*level*/, const char* /*fmt*/, va_list /*ap*/) {}
+
+static void quietAoslLogging()
+{
+    void* h = dlopen("libaosl.so", RTLD_LAZY);
+    if(!h) return;
+    typedef void (*aosl_vlog_func_t)(int, const char*, va_list);
+    typedef void (*aosl_set_vlog_func_fn)(aosl_vlog_func_t);
+    auto setVlog = (aosl_set_vlog_func_fn)dlsym(h, "aosl_set_vlog_func");
+    if(setVlog) setVlog(&aoslNoopVlog);
+}
+
 bool AgoraIo::initAgoraService(const std::string& appid)
 {
+    quietAoslLogging();
+
     _service = createAgoraService();
     if (!_service)
     {
@@ -105,7 +131,10 @@ bool AgoraIo::initAgoraService(const std::string& appid)
     scfg.enableAudioProcessor = true;
     scfg.enableAudioDevice = false;
     scfg.enableVideo = true;
- 
+    // Restrict Agora's real-time network to "global except mainland China".
+    // 0xFFFFFFFE; applied at service init so it governs every connection.
+    scfg.areaCode = agora::rtc::AREA_CODE_OVS;
+
 
     if (_service->initialize(scfg) != agora::ERR_OK)
     {
@@ -677,14 +706,17 @@ bool AgoraIo::doSendHighVideo(const uint8_t* buffer,  uint64_t len,int is_key_fr
   agora::rtc::EncodedVideoFrameInfo videoEncodedFrameInfo;
   videoEncodedFrameInfo.rotation = agora::rtc::VIDEO_ORIENTATION_0;
   videoEncodedFrameInfo.codecType = agora::rtc::VIDEO_CODEC_H264;
-  //videoEncodedFrameInfo.framesPerSecond = 30;
+  // Dimensions/fps come from the pipeline caps (setVideoDimensions). SDK 4.4.x
+  // needs a non-zero width/height here or remote decoders render a black frame.
+  videoEncodedFrameInfo.width = _videoWidth;
+  videoEncodedFrameInfo.height = _videoHeight;
   videoEncodedFrameInfo.frameType = frameType;
   videoEncodedFrameInfo.streamType = agora::rtc::VIDEO_STREAM_HIGH;
  
   //for a better a/v sync 
   videoEncodedFrameInfo.captureTimeMs = getAgoraCurrentMonotonicTimeInMs();
   videoEncodedFrameInfo.decodeTimeMs = 0;
-  videoEncodedFrameInfo.framesPerSecond = 0;
+  videoEncodedFrameInfo.framesPerSecond = (_videoFps>0) ? (int)_videoFps : 30;
 
   if(_transcodeVideo && (_requireTranscode || (_requireKeyframe && !is_key_frame))){
         //transcoding 
@@ -1049,6 +1081,12 @@ void AgoraIo::stopPublishVideo(){
 
 void AgoraIo::setSendOnly(const bool& flag){
     _sendOnly=flag;
+}
+
+void AgoraIo::setVideoDimensions(const int& width, const int& height, const int& fps){
+    if(width>0)  _videoWidth=width;
+    if(height>0) _videoHeight=height;
+    if(fps>0)    _videoFps=fps;
 }
 
 std::list<std::string> AgoraIo::parseIpList(){

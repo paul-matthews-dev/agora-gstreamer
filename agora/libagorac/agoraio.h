@@ -6,6 +6,7 @@
 #include <functional>
 #include <fstream>
 #include <list>
+#include <atomic>
 
 #include "agoratype.h"
 #include "helpers/context.h"
@@ -83,7 +84,9 @@ class AgoraIo{
    void setAudioOutFn(agora_media_out_fn videoOutFn, void* userData);
 
    void setSendOnly(const bool& flag);
-   
+
+   void setVideoDimensions(const int& width, const int& height, const int& fps);
+
 protected:
 
   bool initAgoraService(const std::string& appid);
@@ -236,8 +239,13 @@ protected:
     int                                               _proxyConnectionTimeOut; 
     std::string                                       _proxyIps;   
 
+    //encoded video dimensions/fps from the pipeline caps (for EncodedVideoFrameInfo)
+    std::atomic<int>                                  _videoWidth;
+    std::atomic<int>                                  _videoHeight;
+    std::atomic<int>                                  _videoFps;
+
     //turn it on/off when you need the in video to be transcoded
-    bool                                              _transcodeVideo;                           
+    bool                                              _transcodeVideo;
     bool                                              _requireTranscode;
     bool                                              _requireKeyframe;
 
