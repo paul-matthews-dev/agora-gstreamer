@@ -4,76 +4,75 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
-#include <thread>
 #include <memory>
 
 /*
- * this class represent a queue that hold works for worker threads.
+ * A small thread-safe FIFO. get() returns nullptr when empty; waitForWork()
+ * blocks until an item arrives or close() is called.
  */
 template <class T>
 class WorkQueue{
 public:
-	//constructor
-	WorkQueue(){}
-	
-	//add work to the queue
+
 	void add(T work){
-		
-	   //add this work to the end of the queue
-	   std::lock_guard<std::mutex> guard(_qMutex);
-	  _workQueue.push(work); 
-		  
-	   //_condition.notify_all();
+	   {
+	      std::lock_guard<std::mutex> guard(_qMutex);
+	      _workQueue.push(std::move(work));
+	   }
 	   _condition.notify_one();
 	}
-	
-	//get the next available work on the queue
+
+	//get the next available work on the queue (nullptr when empty)
 	T get(){
-		
+
 		std::lock_guard<std::mutex> guard(_qMutex);
-		  
+
 		if(_workQueue.empty()) return nullptr;
-		  
+
 		T newWork=_workQueue.front();
-	        _workQueue.pop();
-		  
+		_workQueue.pop();
+
 		return newWork;
 	}
-	
-	//check if the queue is empty
-	bool isEmpty(){return _workQueue.empty();}
-	
-	void waitForWork(){
-		
-	     std::unique_lock<std::mutex> lk(_qMutex);
-             _condition.wait(lk, [this]{return !isEmpty();});
-	}
-	
-	size_t size(){
-		return (int)_workQueue.size();
-	}
 
-	T top(){
-		
+	bool isEmpty(){
 		std::lock_guard<std::mutex> guard(_qMutex);
-		  
-		if(_workQueue.empty()) return nullptr;
-		return _workQueue.front();
+		return _workQueue.empty();
 	}
-	
-  void close(){_condition.notify_all();}
 
-  void clear(){
-      std::unique_lock<std::mutex> lk(_qMutex);
-      while(_workQueue.empty()==false){
-	  _workQueue.pop();
-      }
-  }
+	//block until work is available or the queue is closed
+	void waitForWork(){
+
+	     std::unique_lock<std::mutex> lk(_qMutex);
+	     _condition.wait(lk, [this]{return _closed || !_workQueue.empty();});
+	}
+
+	size_t size(){
+		std::lock_guard<std::mutex> guard(_qMutex);
+		return _workQueue.size();
+	}
+
+	//wake up any waiters permanently (the queue stays usable for get())
+	void close(){
+	   {
+	      std::lock_guard<std::mutex> guard(_qMutex);
+	      _closed=true;
+	   }
+	   _condition.notify_all();
+	}
+
+	void clear(){
+	    std::lock_guard<std::mutex> guard(_qMutex);
+	    while(!_workQueue.empty()){
+	        _workQueue.pop();
+	    }
+	}
 
 private:
 	std::queue<T>                _workQueue;
 	std::condition_variable      _condition;
 	std::mutex                   _qMutex;
+	bool                         _closed=false;
 };
 
 class Work;

@@ -1,12 +1,12 @@
 #ifndef _AGORA_IO_H_
 #define _AGORA_IO_H_
 
-#include <memory>
-#include <chrono>
-#include <functional>
-#include <fstream>
-#include <list>
 #include <atomic>
+#include <chrono>
+#include <list>
+#include <memory>
+#include <string>
+#include <thread>
 
 #include "agoratype.h"
 #include "helpers/context.h"
@@ -17,75 +17,54 @@
 #include "observer/pcmframeobserver.h"
 #include "observer/h264frameobserver.h"
 #include "observer/userobserver.h"
-
+#include "observer/connectionobserver.h"
 
 class AgoraIo{
 
   public:
-   AgoraIo(const bool& verbose, 
+   AgoraIo(bool verbose,
            event_fn fn,
-			  void* userData,
-           const int& in_audio_delay,
-           const int& in_video_delay,
-           const int& out_audio_delay,
-           const int& out_video_delay,
-           const bool& sendOnly=false,
-           const bool& enableProxy=false,
-           const int& proxyTimeout=0,
+           void* userData,
+           int in_audio_delay,
+           int in_video_delay,
+           int out_audio_delay,
+           int out_video_delay,
+           bool sendOnly=false,
+           bool enableProxy=false,
+           int proxyTimeout=0,
            const std::string& proxyIps="",
-	   const bool& transcode=false);
+           bool receiveVideo=false);
 
-   bool  init(char* in_app_id, 
-               char* in_ch_id,
-               char* in_user_id,
-               bool is_audiouser,
-               bool enable_enc,
-               short enable_dual,
-               unsigned int  dual_vbr, 
-               unsigned short  dual_width,
-               unsigned short  dual_height,
-               unsigned short min_video_jb,
-               unsigned short dfps);
+   bool  init(char* in_app_id,
+              char* in_ch_id,
+              char* in_user_id);
 
-    int sendVideo(const uint8_t * buffer,  
-                        uint64_t len,
-                        int is_key_frame,
-                        long timestamp);
+   int sendVideo(const uint8_t * buffer,
+                 uint64_t len,
+                 int is_key_frame,
+                 long timestamp);
 
-   int sendAudio(const uint8_t * buffer,  
-                        uint64_t len,
-                        long timestamp,
-                        const long& duration=0);
-
-    void setOnAudioFrameReceivedFn(const OnNewAudioFrame_fn& fn);
-    void setOnVideoFrameReceivedFn(const OnNewFrame_fn& fn);
-
-    size_t getNextVideoFrame(uint8_t* data, 
-                             size_t max_buffer_size,
-                             int* is_key_frame,
-                             uint64_t* ts);
-                             
-    size_t getNextAudioFrame(uint8_t* data, size_t max_buffer_size);
+   int sendAudio(const uint8_t * buffer,
+                 uint64_t len,
+                 long timestamp);
 
    void disconnect();
 
-   void setPaused(const bool& flag);
+   void setPaused(bool flag);
 
    //right now we support two params to the event
-   void addEvent(const AgoraEventType& eventType, 
+   void addEvent(const AgoraEventType& eventType,
                   const std::string& userName,
-                  const long& param1=0, 
-                  const long& param2=0,
+                  long param1=0,
+                  long param2=0,
                   long* states=nullptr);
 
    void setEventFunction(event_fn fn, void* userData);
 
    void setVideoOutFn(agora_media_out_fn videoOutFn, void* userData);
-   void setAudioOutFn(agora_media_out_fn videoOutFn, void* userData);
+   void setAudioOutFn(agora_media_out_fn audioOutFn, void* userData);
 
-   void setSendOnly(const bool& flag);
-
-   void setVideoDimensions(const int& width, const int& height, const int& fps);
+   void setVideoDimensions(int width, int height, int fps);
 
 protected:
 
@@ -95,38 +74,29 @@ protected:
                  char* in_channel_id,
                  char* in_user_id);
 
-
- //retry to connect
- bool retryConnect(char* in_app_id,
-                 char* in_channel_id,
-                 char* in_user_id,
-                 int timeout);   
-
   bool checkConnection();
 
   bool doSendHighVideo(const uint8_t* buffer,
                        uint64_t len,
                        int is_key_frame);
 
-  bool doSendAudio( const uint8_t* buffer,  uint64_t len);
-
-  void UpdatePredictedFps(const long& timestamp);
+  bool doSendAudio(const uint8_t* buffer,  uint64_t len);
 
    //receiver events
    void subscribeToVideoUser(const std::string& userId);
 
-   void receiveVideoFrame(const uint userId, 
-                           const uint8_t* buffer,
-                           const size_t& length,
-                           const int& isKeyFrame,
-                           const uint64_t& ts);
+   void receiveVideoFrame(uint userId,
+                          const uint8_t* buffer,
+                          size_t length,
+                          int isKeyFrame,
+                          uint64_t ts);
 
-   void receiveAudioFrame(const uint userId, 
-                           const uint8_t* buffer,
-                           const size_t& length,
-                           const uint64_t& ts);
+   void receiveAudioFrame(uint userId,
+                          const uint8_t* buffer,
+                          size_t length,
+                          uint64_t ts);
 
-   void handleUserStateChange(const std::string& userId, 
+   void handleUserStateChange(const std::string& userId,
                               const UserState& newState);
 
     void subscribeAudioUser(const std::string& userId);
@@ -146,25 +116,11 @@ protected:
 
     std::list<std::string> parseIpList();
 
-    std::string createProxyString(std::list<std::string> ipList);
-
-    bool initTranscoder();
-    bool setTranscoderProps(int width, int height, int bitrate, int fps);
-    void setTranscoderResolutions(int width, int height);
-    int isIFrame(const uint8_t* packet, uint64_t len);
-
-
-    uint32_t transcode(const uint8_t* inBuffer,  const uint64_t& inLen,
-                        uint8_t* outBuffer, bool isKeyFrame);
+    std::string createProxyString(const std::list<std::string>& ipList);
 
  private:
 
-    WorkQueue_ptr                                 _receivedVideoFrames;
-    WorkQueue_ptr                                 _receivedAudioFrames;
-
     bool                                          _verbose;
-
-    TimePoint                                     _lastReceivedFrameTime;
 
     std::list<std::string>                         _activeUsers;
     std::string                                    _currentVideoUser;
@@ -172,8 +128,6 @@ protected:
     agora::base::IAgoraService*                     _service;
     agora::agora_refptr<agora::rtc::IRtcConnection> _connection;
     agora::rtc::RtcConnectionConfiguration          _rtcConfig;
-
-    bool                                           _connected = false;
 
     std::shared_ptr<H264FrameReceiver>   h264FrameReceiver;
 
@@ -189,16 +143,10 @@ protected:
     agora::agora_refptr<agora::rtc::IVideoEncodedImageSender> _videoFrameSender;
     agora::agora_refptr<agora::rtc::IAudioEncodedFrameSender>  _audioSender;
 
-    AgoraDecoder_ptr                                  _videoDecoder;
-    AgoraEncoder_ptr                                  _videoEncoder;
-
     TimePoint                                       _lastVideoUserSwitchTime;
 
-    bool                                            _isRunning;
-
-    TimePoint                                       _lastVideoSendTime;
-
-    bool                                             _isPaused;
+    std::atomic<bool>                               _isRunning;
+    std::atomic<bool>                               _isPaused;
 
     event_fn                                         _eventfn;
     void*                                            _userEventData;
@@ -222,10 +170,10 @@ protected:
     TimePoint                                         _lastTimeAudioReceived;
     TimePoint                                         _lastTimeVideoReceived;
 
-    std::shared_ptr<std::thread>                      _publishUnpublishCheckThread;
+    std::thread                                       _publishUnpublishCheckThread;
 
-    bool                                              _isPublishingAudio;
-    bool                                              _isPublishingVideo;
+    std::atomic<bool>                                 _isPublishingAudio;
+    std::atomic<bool>                                 _isPublishingVideo;
 
     int                                               _videoOutFps;
     int                                               _videoInFps;
@@ -233,28 +181,17 @@ protected:
 
     bool                                              _sendOnly;
 
-    TimePoint                                         _lastSendTime;
-
     bool                                              _enableProxy;
-    int                                               _proxyConnectionTimeOut; 
-    std::string                                       _proxyIps;   
+    int                                               _proxyConnectionTimeOut;
+    std::string                                       _proxyIps;
 
     //encoded video dimensions/fps from the pipeline caps (for EncodedVideoFrameInfo)
     std::atomic<int>                                  _videoWidth;
     std::atomic<int>                                  _videoHeight;
     std::atomic<int>                                  _videoFps;
 
-    //turn it on/off when you need the in video to be transcoded
-    bool                                              _transcodeVideo;
-    bool                                              _requireTranscode;
-    bool                                              _requireKeyframe;
-
-    int                                              _transcodeWidth;
-    int                                              _transcodeHeight;
-    int                                              _transcodeWidthLow;
-    int                                              _transcodeHeightLow;
-    int                                              _transcodeWidthMedium;
-    int                                              _transcodeHeightMedium;
+    //subscribe to remote video (off for publish-only deployments)
+    bool                                              _receiveVideo;
 
  };
 

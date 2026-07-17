@@ -5,7 +5,7 @@
 //
 
 #include "userobserver.h"
-#include <iostream>
+#include "../helpers/agoralog.h"
 
 UserObserver::UserObserver(agora::rtc::ILocalUser* local_user, const bool& verbose)
     : local_user_(local_user),
@@ -90,12 +90,8 @@ void UserObserver::onUserInfoUpdated(agora::user_id_t userId,
    }
 
    if(_verbose){
-       std::cout<<"UserObserver::onUserInfoUpdated: "
-           <<"userId "
-           <<userId
-           <<", msg "<<msg
-           <<", val "<<val 
-           <<std::endl;
+       logMessage(std::string("UserObserver::onUserInfoUpdated: userId ")+userId
+                  +", msg "+std::to_string(msg)+", val "+std::to_string(val));
    }
  
 }
@@ -115,7 +111,7 @@ void UserObserver::onIntraRequestReceived() {
   }
 
   if(_verbose==false)  return;
-   std::cout<<"Agora sdk requested an iframe\n";
+   logMessage("Agora sdk requested an iframe");
 }
 
 #if SDK_BUILD_NUM>=190534 
@@ -187,23 +183,6 @@ void UserObserver::onRemoteVideoTrackStatistics(agora::agora_refptr<agora::rtc::
       _onRemoteTrackStats(userId, remoteStats);
   }
 
-  /*if(_verbose==false)  return;
-
-   std::cout<< "video stats (remote): "
-            <<" receivedBitrate "<<stats.receivedBitrate
-            <<", decoderOutputFrameRate "<<stats.decoderOutputFrameRate
-            <<", rendererOutputFrameRate "<<stats.rendererOutputFrameRate
-            <<", frameLossRate "<<stats.frameLossRate
-            <<", packetLossRate "<<stats.packetLossRate
-            <<", rxStreamType "<<stats.rxStreamType
-            <<", totalFrozenTime "<<stats.totalFrozenTime
-            <<", frozenRate "<<stats.frozenRate
-            <<", totalDecodedFrames "<<stats.totalDecodedFrames
-            <<", avSyncTimeMs "<<stats.avSyncTimeMs
-            <<", downlink_process_time_ms "<<stats.downlink_process_time_ms
-            <<", frame_render_delay_ms "<<stats.frame_render_delay_ms
-            <<std::endl;*/
-
 }
 
 void UserObserver::onLocalVideoTrackStatistics(agora::agora_refptr<agora::rtc::ILocalVideoTrack> videoTrack,
@@ -236,26 +215,6 @@ void UserObserver::onLocalVideoTrackStatistics(agora::agora_refptr<agora::rtc::I
 
       _onLocalTrackStats("Local", localStats);
      }
-
-     /*if(_verbose==false)  return;
-     std::cout<< "video stats (local): "
-            <<" number_of_streams "<<stats.number_of_streams
-            <<", bytes_major_stream "<<stats.bytes_major_stream
-            <<", bytes_minor_stream "<<stats.bytes_minor_stream
-            <<", frames_encoded "<<stats.frames_encoded
-            <<", ssrc_major_stream "<<stats.ssrc_major_stream
-            <<", ssrc_minor_stream "<<stats.ssrc_minor_stream
-            <<", input_frame_rate "<<stats.input_frame_rate
-            <<", encode_frame_rate "<<stats.encode_frame_rate
-            <<", render_frame_rate "<<stats.render_frame_rate
-            <<", target_media_bitrate_bps "<<stats.target_media_bitrate_bps
-            <<", media_bitrate_bps "<<stats.media_bitrate_bps
-            <<", total_bitrate_bps "<<stats.total_bitrate_bps
-            <<", width "<<stats.width
-            <<", height "<<stats.height
-            <<", encoder_type "<<stats.encoder_type
-            <<std::endl;
-      */
 
 }
 

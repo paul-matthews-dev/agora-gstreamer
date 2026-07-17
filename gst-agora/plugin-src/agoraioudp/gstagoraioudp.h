@@ -4,7 +4,7 @@
  * Copyright (C) 2005 Ronald S. Bultje <rbultje@ronald.bitfreak.net>
  * Copyright (C) 2020 Niels De Graef <niels.degraef@gmail.com>
  * Copyright (C) 2021 Ubuntu <<user@hostname.org>>
- * 
+ *
  * Permission is hereby granted, free of charge, to any person obtaining a
  * copy of this software and associated documentation files (the "Software"),
  * to deal in the Software without restriction, including without limitation
@@ -47,11 +47,9 @@
 #define __GST_AGORAIOUDP_H__
 
 #include <gst/gst.h>
-
-#include <gst/base/gstpushsrc.h>
-#include "agorac.h"
-
 #include <gst/app/gstappsrc.h>
+
+#include "agorac.h"
 
 G_BEGIN_DECLS
 
@@ -66,9 +64,10 @@ G_BEGIN_DECLS
 #define GST_IS_AGORAIOUDP_CLASS(klass) \
   (G_TYPE_CHECK_CLASS_TYPE((klass),GST_TYPE_AGORAIOUDP))
 
-#define GST_TYPE_AGORAIOUDP (gst_agoraioudp_get_type())
-G_DECLARE_FINAL_TYPE (Gstagoraioudp, gst_agoraioudp,
-    GST, PLUGIN_TEMPLATE, GstPushSrc)
+typedef struct _Gstagoraioudp      Gstagoraioudp;
+typedef struct _GstagoraioudpClass GstagoraioudpClass;
+
+GType gst_agoraioudp_get_type (void);
 
 #define MAX_STRING_LEN  1024
 
@@ -87,11 +86,12 @@ struct _Gstagoraioudp
   GstElement *appAudioSink, *udpsrc;
   GstElement *in_pipeline;
 
-  GstAppSrcCallbacks cbs;
-
   gboolean verbose;
   gboolean audio;
 
+  /* guards agora_ctx against concurrent use by the streaming thread, the
+     audio appsink thread and teardown (EOS / READY->NULL) */
+  GMutex ctx_lock;
   AgoraIoContext_t* agora_ctx;
 
   gchar app_id[MAX_STRING_LEN];
@@ -109,7 +109,7 @@ struct _Gstagoraioudp
   gint  out_video_delay;
 
   gboolean    proxy;
-  gboolean    transcode;
+  gboolean    receive_video;            //subscribe to remote video (off by default)
 
   gint        mode;                     //different modes of the plugin
   gchar       proxy_ips[MAX_STRING_LEN];
@@ -125,6 +125,11 @@ struct _Gstagoraioudp
   gint            vid_fps;
 
   enum State      state;
+};
+
+struct _GstagoraioudpClass
+{
+  GstElementClass parent_class;
 };
 
 G_END_DECLS

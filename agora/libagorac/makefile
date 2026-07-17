@@ -1,41 +1,37 @@
-
-CC = g++  # C compiler
-
-FLAGS        = -std=c++11  -I${AGORA_SDK_DIR}/agora_sdk/include 
-CFLAGS       = -fPIC -g -std=c++11 -ldl
-LDFLAGS      = -shared
+CXX      = g++
+CXXFLAGS = -std=c++17 -O2 -g -Wall -Wextra -Wno-unused-parameter -fPIC \
+           -I${AGORA_SDK_DIR}/agora_sdk/include
+LDFLAGS  = -shared
+LDLIBS   = -ldl
 
 TARGET_LIB = libgstagorac.so
-DESTDIR?=/usr/local/lib
+DESTDIR ?= /usr/local/lib
 
-HELPER_FILES=helpers/agoradecoder.cpp \
-                          helpers/agoraencoder.cpp \
-	      		  helpers/agoralog.cpp \
-			  helpers/localconfig.cpp \
-			  helpers/utilities.cpp\
-			  helpers/uidtofile.cpp\
-			  syncbuffer.cpp
+SRCS = agorac.cpp \
+       agoraio.cpp \
+       agoraevent.cpp \
+       syncbuffer.cpp \
+       helpers/agoralog.cpp \
+       helpers/utilities.cpp \
+       observer/pcmframeobserver.cpp \
+       observer/h264frameobserver.cpp \
+       observer/connectionobserver.cpp \
+       observer/userobserver.cpp
 
-AGORA_OBSERCER = observer/pcmframeobserver.cpp \
-				observer/h264frameobserver.cpp \
-				observer/connectionobserver.cpp \
-				observer/userobserver.cpp
+OBJS = $(SRCS:.cpp=.o)
 
-AGORA_HELPERS =  agoraevent.cpp
+all: $(TARGET_LIB)
 
-AGORA_IO_FILES=agoraio.cpp
+$(TARGET_LIB): $(OBJS)
+	$(CXX) $(LDFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
-all: ${TARGET_LIB}
-
-$(TARGET_LIB): $(OBJS) agorac.cpp 
-	$(CC)  $(FLAGS) ${LDFLAGS} -o $(TARGET_LIB) agorac.cpp \
-	       ${HELPER_FILES} ${AGORA_OBSERCER} \
-	       ${AGORA_HELPERS} ${AGORA_IO_FILES} $(CFLAGS)
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 clean:
-	rm $(TARGET_LIB)
+	rm -f $(TARGET_LIB) $(OBJS)
 
 install:
-	mv $(TARGET_LIB) ${DESTDIR}
+	install -m 644 $(TARGET_LIB) $(DESTDIR)
 
-
+.PHONY: all clean install

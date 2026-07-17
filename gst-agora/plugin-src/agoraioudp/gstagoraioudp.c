@@ -47,12 +47,17 @@
 /**
  * SECTION:element-agoraioudp
  *
- * FIXME:Describe agoraioudp here.
+ * Bidirectional bridge between a GStreamer pipeline and an Agora RTC channel.
+ * The sink pad publishes encoded H.264 video to the channel; audio is bridged
+ * over local UDP (inport = Opus in -> Agora, outport = PCM out from Agora).
+ * Remote video is only delivered on the src pad when receive-video=true.
  *
  * <refsect2>
  * <title>Example launch line</title>
  * |[
- * gst-launch -v -m fakesrc ! agoraioudp ! fakesink silent=TRUE
+ * gst-launch-1.0 videotestsrc ! x264enc tune=zerolatency !
+ *   video/x-h264,stream-format=byte-stream,alignment=au !
+ *   agoraioudp appid=XXX channel=test userid=101
  * ]|
  * </refsect2>
  */
@@ -62,8 +67,6 @@
 #endif
 
 #include <gst/gst.h>
-
-#include <gst/base/gstbasesrc.h>
 #include <glib/gstdio.h>
 
 #include "gstagoraioudp.h"
@@ -115,14 +118,20 @@ enum
   OPERATIONAL_MODE,
   PROXY_CONNECT_TIMEOUT,
   PROXY_IPS,
-  TRANSCODE
+  RECEIVE_VIDEO
 };
 
+/* Operational modes:
+ *   1 = local loopback test mode: no SDK connection at all; sink video is
+ *       looped back to the src pad and inport audio to outport.
+ *   2 = video only: publish video via the SDK, no audio UDP bridge.
+ *   3 = full mode (default): publish video + bidirectional audio bridge.
+ */
 enum {
 
-    OPERATION_MODE_1=1,   /*do nothing at all*/
-    OPERATION_MODE_2=2,   /*no audio in or audio out*/
-    OPERATION_MODE_3=3    /*full mode*/
+    OPERATION_MODE_1=1,
+    OPERATION_MODE_2=2,
+    OPERATION_MODE_3=3
 };
 
 
@@ -134,16 +143,19 @@ static guint agoraio_signals[LAST_SIGNAL] = { 0 };
  * describe the real formats here.
  */
 
+/* The element carries encoded H.264 only. Pinning byte-stream here matters:
+ * with ANY caps an upstream tee/rtph264pay could flip x264enc to avc, which
+ * the Agora receivers cannot render (black screen). */
 static GstStaticPadTemplate sink_factory = GST_STATIC_PAD_TEMPLATE ("sink",
     GST_PAD_SINK,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("ANY")
+    GST_STATIC_CAPS ("video/x-h264, stream-format=(string)byte-stream, alignment=(string)au")
     );
 
 static GstStaticPadTemplate src_factory = GST_STATIC_PAD_TEMPLATE ("src",
     GST_PAD_SRC,
     GST_PAD_ALWAYS,
-    GST_STATIC_CAPS ("ANY")
+    GST_STATIC_CAPS ("video/x-h264, stream-format=(string)byte-stream")
     );
 
 
@@ -154,55 +166,50 @@ static void gst_agoraioudp_set_property (GObject * object, guint prop_id,
     const GValue * value, GParamSpec * pspec);
 static void gst_agoraioudp_get_property (GObject * object, guint prop_id,
     GValue * value, GParamSpec * pspec);
+static void gst_agoraioudp_finalize (GObject * object);
 
 static void handle_video_out_fn(const u_int8_t* buffer, u_int64_t len, void* user_data );
 
 static void handle_audio_out_fn(const u_int8_t* buffer, u_int64_t len, void* user_data );
 
+static void gst_agoraioudp_teardown (Gstagoraioudp *agoraIO);
 
-/* The appsink has received a buffer */
+
+/* The appsink has received a buffer: hand the audio to the SDK in place */
 static GstFlowReturn new_sample (GstElement *sink, gpointer *user_data) {
-  
+
    GstSample *sample;
+   GstMapInfo map;
 
    Gstagoraioudp *agoraIO=(Gstagoraioudp*)user_data;
-   AgoraIoContext_t* agora_ctx=agoraIO->agora_ctx;
 
-  /* Retrieve the buffer */
   g_signal_emit_by_name (sink, "pull-sample", &sample);
-  if (sample) {
-
-    GstBuffer * in_buffer=gst_sample_get_buffer (sample);
-
-    size_t data_size=gst_buffer_get_size (in_buffer);
-    gpointer data=malloc(data_size);
-    if(data==NULL){
-       g_print("cannot allocate memory!\n");
-       return GST_FLOW_ERROR;
-    }
-
-    gst_buffer_extract(in_buffer,0, data, data_size);
-
-    GstClockTime in_buffer_pts= GST_BUFFER_CAST(in_buffer)->pts;
-    
-    if(agoraIO->mode==OPERATION_MODE_3){
-        if (agora_ctx==NULL) {
-
-            return GST_FLOW_ERROR;
-        }
-        agoraio_send_audio(agora_ctx, data, data_size,(in_buffer_pts)/1000000);
-    }
-    else if(agoraIO->mode==OPERATION_MODE_1){
-        handle_audio_out_fn(data, data_size, agoraIO);
-    }
-
-    free(data);
-
-    gst_sample_unref (sample);
-    return GST_FLOW_OK;
+  if (!sample) {
+    return GST_FLOW_ERROR;
   }
 
-  return GST_FLOW_ERROR;
+  GstBuffer * in_buffer=gst_sample_get_buffer (sample);
+  if (in_buffer && gst_buffer_map (in_buffer, &map, GST_MAP_READ)) {
+
+    GstClockTime in_buffer_pts=GST_BUFFER_PTS (in_buffer);
+
+    if(agoraIO->mode==OPERATION_MODE_3){
+        g_mutex_lock (&agoraIO->ctx_lock);
+        if (agoraIO->agora_ctx!=NULL) {
+            agoraio_send_audio(agoraIO->agora_ctx, map.data, map.size,
+                               in_buffer_pts/1000000);
+        }
+        g_mutex_unlock (&agoraIO->ctx_lock);
+    }
+    else if(agoraIO->mode==OPERATION_MODE_1){
+        handle_audio_out_fn(map.data, map.size, agoraIO);
+    }
+
+    gst_buffer_unmap (in_buffer, &map);
+  }
+
+  gst_sample_unref (sample);
+  return GST_FLOW_OK;
 }
 
 void handle_agora_pending_events(Gstagoraioudp *agoraIO, 
@@ -229,44 +236,17 @@ static void handle_event_Signal(void* userData,
 int setup_audio_udp(Gstagoraioudp *agoraIO){
 
    agoraIO->appAudioSrc= gst_element_factory_make ("appsrc", "source");
-   if(!agoraIO->appAudioSrc){
-       g_print("failed to create audio app src\n");
-   }
-   else{
-       g_print("created audio app src successfully\n");
-   }
    agoraIO->udpsink = gst_element_factory_make("udpsink", "udpsink");
-   if(!agoraIO->udpsink){
-       g_print("failed to create audio udpsink\n");
-   }
-   else{
-       g_print("created udpsink successfully\n");
-   }
-
    agoraIO->udpsrc = gst_element_factory_make("udpsrc", "udpsrc");
-   if(!agoraIO->udpsrc){
-       g_print("failed to create audio udpsrc\n");
-   }
-   else{
-       g_print("created udpsrc successfully\n");
-   }
-
    agoraIO->appAudioSink = gst_element_factory_make("appsink", "appsink");
-   if(!agoraIO->appAudioSink){
-       g_print("failed to create audio appsink\n");
-   }
-   else{
-       g_print("created appsink successfully\n");
-   }
-
    agoraIO->out_pipeline = gst_pipeline_new ("pipeline");
-   if(!agoraIO->out_pipeline){
-       g_print("failed to create audio pipeline\n");
-   }
-
    agoraIO->in_pipeline = gst_pipeline_new ("in-pipeline");
-   if(!agoraIO->in_pipeline){
-       g_print("failed to create audio pipeline\n");
+
+   if(!agoraIO->appAudioSrc || !agoraIO->udpsink || !agoraIO->udpsrc ||
+      !agoraIO->appAudioSink || !agoraIO->out_pipeline || !agoraIO->in_pipeline){
+       GST_ELEMENT_ERROR (agoraIO, CORE, MISSING_PLUGIN, (NULL),
+           ("failed to create the internal audio UDP bridge elements"));
+       return FALSE;
    }
 
    //out plugin
@@ -307,21 +287,20 @@ int setup_audio_udp(Gstagoraioudp *agoraIO){
 int init_agora(Gstagoraioudp *agoraIO){
 
    if (strlen(agoraIO->app_id)==0){
-       g_print("app id cannot be empty!\n");
-       return -1;
+       GST_ELEMENT_ERROR (agoraIO, RESOURCE, SETTINGS, (NULL),
+           ("the appid property cannot be empty"));
+       return FALSE;
    }
 
    if (strlen(agoraIO->channel_id)==0){
-       g_print("channel id cannot be empty!\n");
-       return -1;
+       GST_ELEMENT_ERROR (agoraIO, RESOURCE, SETTINGS, (NULL),
+           ("the channel property cannot be empty"));
+       return FALSE;
    }
 
    if(agoraIO->mode<2){
-       g_print("agoraioupd is running on basic mode: no video nor audio via the sdk\n");
-
-       setup_audio_udp(agoraIO);
-
-       return TRUE;
+       GST_INFO_OBJECT (agoraIO, "running in basic mode: no video or audio via the sdk");
+       return setup_audio_udp(agoraIO);
    }
 
    agora_config_t config;
@@ -329,14 +308,6 @@ int init_agora(Gstagoraioudp *agoraIO){
    config.app_id=agoraIO->app_id;               /*appid*/
    config.ch_id=agoraIO->channel_id;            /*channel*/
    config.user_id=agoraIO->user_id;             /*user id*/
-   config.is_audiouser=FALSE;                   /*is audio user*/
-   config.enc_enable=0;                         /*enable encryption */
-   config.enable_dual=0;                        /*enable dual */
-   config.dual_vbr=500000;                      /*dual video bitrate*/
-   config.dual_width=320;                       /*dual video width*/ 
-   config.dual_height=180;                      /*dual video height*/
-   config.min_video_jb=12;                      /*initial size of video buffer*/
-   config.dfps=30;                              /*dual fps*/
    config.verbose=agoraIO->verbose;             /*log level*/
    config.fn=handle_event_Signal;               /*signal function to call*/
    config.userData=(void*)(agoraIO);            /*additional params to the signal function*/ ;
@@ -348,15 +319,15 @@ int init_agora(Gstagoraioudp *agoraIO){
    config.enableProxy=agoraIO->proxy;           /*enable proxy*/
    config.proxy_timeout= agoraIO->reconnect_timeout;   /*proxy timeout*/
    config.proxy_ips= agoraIO->proxy_ips;               /*proxy ips*/
-   config.transcode=agoraIO->transcode;                /*proxy ips*/  
+   config.receive_video=agoraIO->receive_video; /*subscribe to remote video*/
 
     /*initialize agora*/
    agoraIO->agora_ctx=agoraio_init(&config);
 
    if(agoraIO->agora_ctx==NULL){
-
-      g_print("agora COULD NOT  be initialized\n");
-      return FALSE;   
+      GST_ELEMENT_ERROR (agoraIO, RESOURCE, OPEN_READ_WRITE, (NULL),
+          ("could not initialize the Agora SDK connection"));
+      return FALSE;
    }
 
    //apply the video dimensions/fps cached from the caps event (which fired before
@@ -365,35 +336,37 @@ int init_agora(Gstagoraioudp *agoraIO){
        agoraIO->vid_width, agoraIO->vid_height, agoraIO->vid_fps);
 
    //this function will be called whenever there is a video frame ready
-   agoraio_set_video_out_handler(agoraIO->agora_ctx, handle_video_out_fn, (void*)(agoraIO));
+   //(remote video is only subscribed when receive-video=true)
+   if(agoraIO->receive_video){
+       agoraio_set_video_out_handler(agoraIO->agora_ctx, handle_video_out_fn, (void*)(agoraIO));
+   }
    agoraio_set_audio_out_handler(agoraIO->agora_ctx, handle_audio_out_fn, (void*)(agoraIO));
 
    //initialize timestamps to zero
    agoraIO->video_ts=0;
    agoraIO->audio_ts=0;
 
-   g_print("agora has been successfuly initialized\n");
+   GST_INFO_OBJECT (agoraIO, "agora has been successfully initialized");
    if(agoraIO->mode<3){
-       g_print("agoraioupd is running mode 2: no audio\n");
+       GST_INFO_OBJECT (agoraIO, "running in mode 2: video via the sdk, no audio bridge");
        return TRUE;
    }
 
-   g_print("agoraioupd is running on full mode: audio and video\n");
-   setup_audio_udp(agoraIO);
-
-   return TRUE;
+   GST_INFO_OBJECT (agoraIO, "running in full mode: video via the sdk + audio bridge");
+   return setup_audio_udp(agoraIO);
 }
 
-void print_packet(u_int8_t* data, int size){
-  
-  int i=0;
-
-  for(i=0;i<size;i++){
-    printf(" %d ", data[i]);
+/* the src pad delivers live frames straight from the SDK's jitter buffer */
+static gboolean
+gst_agoraio_src_query (GstPad * pad, GstObject * parent, GstQuery * query)
+{
+  switch (GST_QUERY_TYPE (query)) {
+    case GST_QUERY_LATENCY:
+      gst_query_set_latency (query, TRUE, 0, GST_CLOCK_TIME_NONE);
+      return TRUE;
+    default:
+      return gst_pad_query_default (pad, parent, query);
   }
-
-  printf("\n================================\n");
-    
 }
 
 void handle_agora_pending_events(Gstagoraioudp *agoraIO, 
@@ -459,41 +432,29 @@ void handle_agora_pending_events(Gstagoraioudp *agoraIO,
        }
 }
 
-//handle video out from agora to the plugin
+//handle video out from agora to the plugin (only wired when receive-video=true)
 static void handle_video_out_fn(const u_int8_t* buffer, u_int64_t len, void* user_data ){
 
     Gstagoraioudp* agoraIO=(Gstagoraioudp*)(user_data);
 
-    GstPad * peer=gst_pad_get_peer(agoraIO->srcpad);
-    if(peer==NULL){
-        g_print("handle_video_out_fn: unexpected error. Cannot reach peer pad\n");
-        return;
-    }
-
      GstBuffer * out_buffer=gst_buffer_new_allocate (NULL, len, NULL);
 
      gst_buffer_fill(out_buffer, 0, buffer, len);
-     gst_buffer_set_size(out_buffer, len);
 
-
-     //GST_BUFFER_CAST(out_buffer)->pts=in_buffer_pts;
-     //GST_BUFFER_CAST(out_buffer)->dts=30000000//in_buffer_dts;
-     GST_BUFFER_CAST(out_buffer)->duration=30000000;
+     GST_BUFFER_DURATION (out_buffer)=30*GST_MSECOND;
 
      GstFlowReturn retCode=gst_pad_push (agoraIO->srcpad, out_buffer);
-     if(retCode!=GST_FLOW_OK){
-         g_print("cannot push video to sync\n");
+     if(retCode!=GST_FLOW_OK && retCode!=GST_FLOW_NOT_LINKED){
+         GST_WARNING_OBJECT (agoraIO, "cannot push remote video downstream: %s",
+             gst_flow_get_name (retCode));
      }
-
-     gst_object_unref(peer);
-
 }
 
 static void handle_audio_out_fn(const u_int8_t* data_buffer, u_int64_t len, void* user_data ){
 
     GstBuffer *buffer;
     GstFlowReturn ret;
-    
+
     Gstagoraioudp* agoraIO=(Gstagoraioudp*)(user_data);
     if(agoraIO->mode==OPERATION_MODE_2){
         return;
@@ -501,66 +462,68 @@ static void handle_audio_out_fn(const u_int8_t* data_buffer, u_int64_t len, void
 
     buffer = gst_buffer_new_allocate (NULL, len, NULL);
     gst_buffer_fill(buffer, 0, data_buffer, len);
-    gst_buffer_set_size(buffer, len);
 
-    GST_BUFFER_CAST(buffer)->pts=agoraIO->audio_ts;
-    GST_BUFFER_CAST(buffer)->dts=agoraIO->audio_ts;
-    GST_BUFFER_CAST(buffer)->duration=GST_BUFFER_DURATION (buffer);
+    /* PCM out of the SDK is S16LE mono 48 kHz: len/2 samples */
+    GstClockTime duration=gst_util_uint64_scale (len/2, GST_SECOND, 48000);
 
-    agoraIO->audio_ts += GST_BUFFER_DURATION (buffer);
-    
+    GST_BUFFER_PTS (buffer)=agoraIO->audio_ts;
+    GST_BUFFER_DTS (buffer)=agoraIO->audio_ts;
+    GST_BUFFER_DURATION (buffer)=duration;
+
+    agoraIO->audio_ts += duration;
 
     ret = gst_app_src_push_buffer(GST_APP_SRC_CAST(agoraIO->appAudioSrc), buffer);
     if (ret != GST_FLOW_OK) {
-        g_print("handle_audio_out_fn: not able to push audio data\n");
-        /* something wrong, stop pushing */
+        GST_WARNING_OBJECT (agoraIO, "not able to push audio data: %s",
+            gst_flow_get_name (ret));
     }
 }
 
 static GstFlowReturn gst_agoraio_chain (GstPad * pad, GstObject * parent, GstBuffer * in_buffer){
 
-    
-    size_t data_size=0;
+    GstMapInfo map;
     int    is_key_frame=0;
-
 
     Gstagoraioudp *agoraIO=GST_AGORAIOUDP (parent);
 
     if(agoraIO->agora_ctx==NULL && agoraIO->mode>OPERATION_MODE_1){
+        gst_buffer_unref (in_buffer);
         return GST_FLOW_ERROR;
     }
 
     //do nothing in case of pause
     if(agoraIO->state==PAUSED){
+        gst_buffer_unref (in_buffer);
         return GST_FLOW_OK;
     }
 
-    data_size=gst_buffer_get_size (in_buffer);
-    GstClockTime in_buffer_pts= GST_BUFFER_CAST(in_buffer)->pts;
-  
-    gpointer data=malloc(data_size);
-    if(data==NULL){
-      gst_buffer_unref (in_buffer);
-       g_print("cannot allocate memory!\n");
-       return GST_FLOW_ERROR;
+    if(!gst_buffer_map (in_buffer, &map, GST_MAP_READ)){
+        gst_buffer_unref (in_buffer);
+        GST_ERROR_OBJECT (agoraIO, "cannot map input buffer");
+        return GST_FLOW_ERROR;
     }
 
-    gst_buffer_extract(in_buffer,0, data, data_size);
+    GstClockTime in_buffer_pts=GST_BUFFER_PTS (in_buffer);
+
     if(GST_BUFFER_FLAG_IS_SET(in_buffer, GST_BUFFER_FLAG_DELTA_UNIT) == FALSE){
         is_key_frame=1;
     }
 
     //mode 1: used for testing and debugging
     if(agoraIO->mode==OPERATION_MODE_1){
-        handle_video_out_fn(data, data_size, (void*)(agoraIO));
+        handle_video_out_fn(map.data, map.size, (void*)(agoraIO));
     }
     else if(agoraIO->audio==FALSE){
         unsigned long ts=(unsigned long)(in_buffer_pts/1000000); //in ms
-        agoraio_send_video(agoraIO->agora_ctx, data, data_size,is_key_frame,ts);
+        g_mutex_lock (&agoraIO->ctx_lock);
+        if(agoraIO->agora_ctx!=NULL){
+            agoraio_send_video(agoraIO->agora_ctx, map.data, map.size, is_key_frame, ts);
+        }
+        g_mutex_unlock (&agoraIO->ctx_lock);
     }
 
-     free(data); 
-     gst_buffer_unref (in_buffer);
+    gst_buffer_unmap (in_buffer, &map);
+    gst_buffer_unref (in_buffer);
 
     return GST_FLOW_OK;
 }
@@ -572,38 +535,31 @@ gst_on_change_state (GstElement *element, GstStateChange transition)
   GstStateChangeReturn ret = GST_STATE_CHANGE_SUCCESS;
   Gstagoraioudp *agoraIO=GST_AGORAIOUDP (element);
 
-  g_print("AgoraIO: state change request from the plugin: \n");
+  GST_DEBUG_OBJECT (agoraIO, "state change: %s -> %s",
+      gst_element_state_get_name (GST_STATE_TRANSITION_CURRENT (transition)),
+      gst_element_state_get_name (GST_STATE_TRANSITION_NEXT (transition)));
+
   switch (transition) {
        case GST_STATE_CHANGE_NULL_TO_READY:
-            g_print("AgoraIO: state change: NULL to READY \n");   
             if(agoraIO->agora_ctx==NULL && init_agora(agoraIO)!=TRUE){
-                g_print("cannot initialize agora\n");
-                return GST_STATE_CHANGE_NO_PREROLL;
+                GST_ERROR_OBJECT (agoraIO, "cannot initialize agora");
+                return GST_STATE_CHANGE_FAILURE;
              }
             break;
-	   case GST_STATE_CHANGE_READY_TO_NULL:
-	        g_print("AgoraIO: state change: READY to NULL\n");
-	        break;
-       case GST_STATE_CHANGE_READY_TO_PAUSED:
-            g_print("AgoraIO: state change: READY to PAUSED\n");
-            break;
-       case GST_STATE_CHANGE_PAUSED_TO_READY:
-            g_print("AgoraIO: state change: PAUSED to READY \n");
+       case GST_STATE_CHANGE_READY_TO_NULL:
+            gst_agoraioudp_teardown (agoraIO);
             break;
        case GST_STATE_CHANGE_PLAYING_TO_PAUSED:
             agoraIO->state=PAUSED;
             if(agoraIO->agora_ctx!=NULL)
                 agoraio_set_paused(agoraIO->agora_ctx, TRUE);
-            g_print("AgoraIO: state change: PLAYING to PAUSED \n");
             break;
         case GST_STATE_CHANGE_PAUSED_TO_PLAYING:
             agoraIO->state=RUNNING;
             if(agoraIO->agora_ctx!=NULL)
                 agoraio_set_paused(agoraIO->agora_ctx, FALSE);
-            g_print("AgoraIO: state change: PAUSED to PLAYING  \n");
             break;
 	   default:
-            g_print("AgoraIO: unknown state change\n");  
 	        break;
   }
 
@@ -616,22 +572,45 @@ static void release_audio_pipelines(Gstagoraioudp *agoraIO){
 
     if(agoraIO->in_pipeline==NULL ||
        agoraIO->out_pipeline==NULL){
-          g_print("cannot release audo plugin because they have not been allocated\n");
+          GST_DEBUG_OBJECT (agoraIO, "audio pipelines were never allocated, nothing to release");
           return;
     }
     if(agoraIO->mode==3 || agoraIO->mode==1){
 
         gst_element_send_event(agoraIO->in_pipeline, gst_event_new_eos());
         gst_element_send_event(agoraIO->out_pipeline, gst_event_new_eos());
-        
+
         if(!gst_element_set_state (agoraIO->in_pipeline, GST_STATE_NULL) ||
            !gst_element_set_state (agoraIO->out_pipeline, GST_STATE_NULL)){
-               g_print("not able to stop audio plugins!\n");
+               GST_WARNING_OBJECT (agoraIO, "not able to stop the audio bridge pipelines");
         }
 
         //release internal pipelines
         gst_object_unref (agoraIO->in_pipeline);
         gst_object_unref (agoraIO->out_pipeline);
+    }
+
+    agoraIO->in_pipeline=NULL;
+    agoraIO->out_pipeline=NULL;
+}
+
+/* Disconnect from agora and drop the audio bridge. Idempotent; runs on EOS and
+   again on READY->NULL so teardown happens even when EOS never arrives (e.g. a
+   failed preroll). The SDK is disconnected FIRST so its callback threads stop
+   before the appsrc they push into is unreffed. */
+static void gst_agoraioudp_teardown (Gstagoraioudp *agoraIO){
+
+    g_mutex_lock (&agoraIO->ctx_lock);
+    AgoraIoContext_t* ctx=agoraIO->agora_ctx;
+    agoraIO->agora_ctx=NULL;
+    g_mutex_unlock (&agoraIO->ctx_lock);
+
+    if(ctx!=NULL){
+        agoraio_disconnect(&ctx);
+    }
+
+    if(agoraIO->mode!=OPERATION_MODE_2){
+        release_audio_pipelines(agoraIO);
     }
 }
 
@@ -641,9 +620,9 @@ gst_agoraio_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
 {
   Gstagoraioudp *agoraIO;
 
-  g_print("AgoraIO: received an event from the pipe: %d \n", GST_EVENT_TYPE (event));
-
   agoraIO = GST_AGORAIOUDP (parent);
+
+  GST_LOG_OBJECT (agoraIO, "received %s event", GST_EVENT_TYPE_NAME (event));
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_CAPS:
@@ -671,17 +650,9 @@ gst_agoraio_sink_event (GstPad * pad, GstObject * parent, GstEvent * event)
        break;
 
     case GST_EVENT_EOS:
-        g_print("agoraioudp received a disconnect event\n");
+        GST_INFO_OBJECT (agoraIO, "received EOS, disconnecting from agora");
         agoraIO->state=ENDED;
-        if(agoraIO->mode!=2){
-            release_audio_pipelines(agoraIO);
-        }
-        if(agoraIO->agora_ctx==NULL){
-            return gst_pad_event_default (pad, parent, event);
-        }
-        agoraio_disconnect(&agoraIO->agora_ctx);
-        agoraIO->agora_ctx=NULL;
-
+        gst_agoraioudp_teardown (agoraIO);
         break;
     default:
       break;
@@ -704,105 +675,108 @@ gst_agoraioudp_class_init (GstagoraioudpClass * klass)
 
   gobject_class->set_property = gst_agoraioudp_set_property;
   gobject_class->get_property = gst_agoraioudp_get_property;
+  gobject_class->finalize = gst_agoraioudp_finalize;
 
   //on pipeline stae change
   gstelement_class->change_state = gst_on_change_state;
 
  g_object_class_install_property (gobject_class, PROP_VERBOSE,
       g_param_spec_boolean ("verbose", "verbose", "Produce verbose output ?",
-          FALSE, G_PARAM_READWRITE));
+          FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, AUDIO,
       g_param_spec_boolean ("audio", "audio", "when true, it reads audio from agora than video",
-          FALSE, G_PARAM_READWRITE));
+          FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /*app id*/
   g_object_class_install_property (gobject_class, APP_ID,
       g_param_spec_string ("appid", "appid", "agora app id",
-          FALSE, G_PARAM_READWRITE));
+          NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /*channel_id*/
   g_object_class_install_property (gobject_class, CHANNEL_ID,
       g_param_spec_string ("channel", "channel", "agora channel id",
-          FALSE, G_PARAM_READWRITE));
+          NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /*user_id*/
   g_object_class_install_property (gobject_class, USER_ID,
       g_param_spec_string ("userid", "userid", "agora user id (optional)",
-          FALSE, G_PARAM_READWRITE));
+          NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
 
   /*in port*/
   g_object_class_install_property (gobject_class, IN_PORT,
       g_param_spec_int ("inport", "inport", "inport udp port for audio in",0, G_MAXUINT16,
-          7373, G_PARAM_READWRITE));
+          7373, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
     
 
   /*out port*/
   g_object_class_install_property (gobject_class, OUT_PORT,
       g_param_spec_int ("outport", "outport", "outport udp port for audio out", 0, G_MAXUINT16,
-          7374, G_PARAM_READWRITE));
+          7374, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /*host*/
   g_object_class_install_property (gobject_class, HOST,
       g_param_spec_string ("host", "host", "udp host that we send audio to it",
-          FALSE, G_PARAM_READWRITE));
+          "127.0.0.1", G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /*in audio delay*/
   g_object_class_install_property (gobject_class, IN_AUDIO_DELAY,
       g_param_spec_int ("in-audio-delay", "in-audio-delay", "amount of delay (ms) for audio gst -> agora SDK", 0, G_MAXUINT16,
-          0, G_PARAM_READWRITE));
+          0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   /*in video delay*/
   g_object_class_install_property (gobject_class, IN_VIDEO_DELAY,
       g_param_spec_int ("in-video-delay", "in-video-delay", "amount of delay (ms) for video from gst -> agora SDK ", 0, G_MAXUINT16,
-          0, G_PARAM_READWRITE));
+          0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
      
   /*in audio delay*/
   g_object_class_install_property (gobject_class, OUT_AUDIO_DELAY,
       g_param_spec_int ("out-audio-delay", "out-audio-delay", "amount of delay (ms) for audio from agora SDK -> gst ", 0, G_MAXUINT16,
-          0, G_PARAM_READWRITE));
+          0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
    /*in video delay*/
   g_object_class_install_property (gobject_class, OUT_VIDEO_DELAY,
       g_param_spec_int ("out-video-delay", "out-video-delay", "amount of delay (ms) for video from agora SDK -> gst ", 0, G_MAXUINT16,
-          0, G_PARAM_READWRITE));
+          0, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
    g_object_class_install_property (gobject_class, PROXY,
       g_param_spec_boolean ("proxy", "proxy", "place call via proxy  ?",
-          FALSE, G_PARAM_READWRITE));
+          FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
    //mode
    g_object_class_install_property (gobject_class, OPERATIONAL_MODE,
-      g_param_spec_int ("mode", "mode", "plugin operational mode: 1=no video nor audio, 2=video only and 3=video and audio ", 1, G_MAXUINT16,
-          3, G_PARAM_READWRITE));
+      g_param_spec_int ("mode", "mode",
+          "operational mode: 1=local loopback test (no SDK), 2=video only (no audio bridge), 3=video and audio (default)",
+          1, 3, 3, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
     //proxy timeout
     g_object_class_install_property (gobject_class, PROXY_CONNECT_TIMEOUT,
       g_param_spec_int ("proxytimeout", "proxytimeout", "set the value of connection timeout before trying to connect  with a proxy ", 1, G_MAXUINT16,
-          10000, G_PARAM_READWRITE));
+          10000, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
     //proxy ips
     g_object_class_install_property (gobject_class, PROXY_IPS,
-      g_param_spec_string ("proxyips", "proxyips", "set proxy ips (comma seprated list)",
-          FALSE, G_PARAM_READWRITE));
+      g_param_spec_string ("proxyips", "proxyips", "set proxy ips (comma separated list)",
+          NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
         
-    // transcode
-    g_object_class_install_property (gobject_class, TRANSCODE,
-      g_param_spec_boolean ("transcode", "transcode", "Produce transcoded output if needed to respect requested bitrate ?",
-          FALSE, G_PARAM_READWRITE));
+    // receive-video: subscribe to remote video and push it out of the src pad.
+    // Off by default: this element is typically used publish-only for video
+    // (e.g. an intercom), and subscribing wastes downlink bandwidth.
+    g_object_class_install_property (gobject_class, RECEIVE_VIDEO,
+      g_param_spec_boolean ("receive-video", "receive-video",
+          "subscribe to remote video and push it out of the src pad",
+          FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
-  gst_element_class_set_details_simple(gstelement_class,
-    "agorasrc",
-    "agorasrc",
-    "read h264 from agora and send it to the child",
-    "Ben <<benweekes73@gmail.com>>");
+  gst_element_class_set_static_metadata (gstelement_class,
+    "Agora RTC bridge (agoraioudp)",
+    "Source/Sink/Network",
+    "Publishes H.264 video to an Agora RTC channel and bridges audio over local UDP; "
+    "optionally delivers remote video on the src pad",
+    "Ben <benweekes73@gmail.com>");
 
-  gst_element_class_add_pad_template (gstelement_class,
-      gst_static_pad_template_get (&src_factory));
-
-  gst_element_class_add_pad_template (gstelement_class,
-      gst_static_pad_template_get (&sink_factory));
+  gst_element_class_add_static_pad_template (gstelement_class, &src_factory);
+  gst_element_class_add_static_pad_template (gstelement_class, &sink_factory);
 
 
   /*install agoraio available signals*/
@@ -883,6 +857,8 @@ gst_agoraioudp_init (Gstagoraioudp * agoraIO)
   agoraIO->srcpad = gst_pad_new_from_static_template (&src_factory, "src");
 
   GST_PAD_SET_PROXY_CAPS (agoraIO->srcpad);
+  gst_pad_set_query_function (agoraIO->srcpad,
+                              GST_DEBUG_FUNCPTR(gst_agoraio_src_query));
   gst_element_add_pad (GST_ELEMENT (agoraIO), agoraIO->srcpad);
 
   //for sink 
@@ -898,7 +874,8 @@ gst_agoraioudp_init (Gstagoraioudp * agoraIO)
 
   //set it initially to null
   agoraIO->agora_ctx=NULL;
-   
+  g_mutex_init (&agoraIO->ctx_lock);
+
   //set app_id and channel_id to zero
   memset(agoraIO->app_id, 0, MAX_STRING_LEN);
   memset(agoraIO->channel_id, 0, MAX_STRING_LEN);
@@ -912,7 +889,7 @@ gst_agoraioudp_init (Gstagoraioudp * agoraIO)
   
   agoraIO->verbose = FALSE;
   agoraIO->audio=FALSE;
-  agoraIO->transcode=false;
+  agoraIO->receive_video=FALSE;
 
   agoraIO->mode=3;
 
@@ -986,8 +963,8 @@ gst_agoraioudp_set_property (GObject * object, guint prop_id,
         str=g_value_get_string (value);
         g_strlcpy(agoraIO->proxy_ips, str, MAX_STRING_LEN);
         break; 
-    case TRANSCODE:
-         agoraIO->transcode = g_value_get_boolean (value);
+    case RECEIVE_VIDEO:
+         agoraIO->receive_video = g_value_get_boolean (value);
          break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -1050,13 +1027,24 @@ gst_agoraioudp_get_property (GObject * object, guint prop_id,
     case PROXY_IPS:
         g_value_set_string (value, agoraIO->proxy_ips);
         break;
-    case TRANSCODE:
-        g_value_set_boolean (value, agoraIO->transcode);
+    case RECEIVE_VIDEO:
+        g_value_set_boolean (value, agoraIO->receive_video);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
         break;
   }
+}
+
+static void
+gst_agoraioudp_finalize (GObject * object)
+{
+  Gstagoraioudp *agoraIO = GST_AGORAIOUDP (object);
+
+  gst_agoraioudp_teardown (agoraIO);
+  g_mutex_clear (&agoraIO->ctx_lock);
+
+  G_OBJECT_CLASS (parent_class)->finalize (object);
 }
 
 /* entry point to initialize the plug-in

@@ -8,10 +8,13 @@ A GStreamer plugin wrapping the Agora Linux RTC SDK, trimmed to the single **`ag
 element and targeting **aarch64 (ARM64) only** with the **Agora Linux RTC SDK v4.4.32**
 (SDK build 675674), vendored under `agora/sdk/agora_sdk_aarch64_4.4.32/`.
 
-`agoraioudp` is bidirectional: its GStreamer pads carry encoded **H.264** video (sink =
-publish to Agora, src = remote video out), while audio is bridged over local UDP
-(`inport` = Opus in → Agora, `outport` = PCM out from Agora). The other elements
-(`agorasink`/`agorasrc`/`agoraio`), other SDKs, and cross-compile tooling were removed.
+`agoraioudp` publishes encoded **H.264** video (sink pad, caps
+`video/x-h264,stream-format=byte-stream,alignment=au`) and bridges audio over local UDP
+(`inport` = Opus in → Agora, `outport` = PCM out from Agora). Remote video on the src pad
+is **opt-in** (`receive-video=true`); by default the backend never subscribes to remote
+video at all (this fork serves an intercom: video publish-only, audio bidirectional).
+The other elements (`agorasink`/`agorasrc`/`agoraio`), other SDKs, cross-compile tooling,
+and the ffmpeg/x264 transcode path were removed.
 
 ## Architecture
 
@@ -19,8 +22,10 @@ Two layers, connected by a flat C ABI:
 
 1. **`agora/libagorac/`** — C++ backend built as `libgstagorac.so`. `agorac.cpp` exposes an
    `extern "C"` API (`agorac.h`); the real work is in class `AgoraIo` (`agoraio.cpp`), which
-   owns the Agora service/connection, publish/subscribe, and A/V sync. Sub-dirs: `observer/`
-   (SDK callbacks), `helpers/` (encode/decode, log, utilities), `file_parser/`, `syncbuffer.cpp`.
+   owns the Agora service/connection and publish/subscribe. Sub-dirs: `observer/` (SDK
+   callbacks), `helpers/` (log, utilities, context). `syncbuffer.cpp` is a thread-free
+   delay buffer: pure pass-through unless an in/out delay property is set. Backend logging
+   (`helpers/agoralog.cpp`, `/tmp/agora.log`) is gated at runtime by the `verbose` property.
 
 2. **`gst-agora/plugin-src/agoraioudp/gstagoraioudp.c`** — the C element. It fills an
    `agora_config_t` (`agora/libagorac/agoraconfig.h`), calls `agoraio_init(&config)` for an
@@ -46,7 +51,8 @@ cd build
 - The plugin is built with meson. `gst-agora/plugin-src/meson.build` builds only `agoraioudp`
   and links the backend + SDK via **`link_args`** (see gotcha #2). `gst-agora/meson_options.txt`
   exposes `agorac_lib` / `agora_sdk_lib` so the local build points at the repo copies instead of
-  `/usr/local/lib` (the install defaults).
+  `/usr/local/lib` (the install defaults). The C ABI headers (`agorac.h`/`agoraconfig.h`) always
+  come from the repo via `include_directories` — never from a stale `/usr/local/include` copy.
 
 Run pipelines with (system install):
 ```sh
@@ -60,8 +66,8 @@ For a **local** build also set `LD_LIBRARY_PATH` to the vendored SDK dir + `agor
 1. **Custom encoded video tracks need non-zero `width`/`height`.** A normal remote subscriber
    renders **black** if `EncodedVideoFrameInfo.width/height` are 0 (older SDKs inferred them; 4.4.x
    does not). Dimensions/fps are pulled from the sink caps in `gstagoraioudp.c` and pushed via
-   `agoraio_set_video_dimensions()` into `AgoraIo::_videoWidth/_videoHeight/_videoFps`. Caps arrive
-   before `agora_ctx` exists (created lazily on the first buffer), so the values are cached on the
+   `agoraio_set_video_dimensions()` into `AgoraIo::_videoWidth/_videoHeight/_videoFps`. Caps can
+   arrive before `agora_ctx` exists (created on NULL→READY), so the values are cached on the
    element and re-applied in `init_agora()`.
 2. **meson must link the backend with `-Wl,--no-as-needed`.** With the default `--as-needed`,
    `libgstagorac.so` is dropped and the plugin fails to link (undefined `agoraio_*`). It's passed
@@ -97,4 +103,12 @@ For a **local** build also set `LD_LIBRARY_PATH` to the vendored SDK dir + `agor
 - SDK runtime droppings (`agora*.dat`, `agora_cache.db`, `common_resource/`, crash contexts) are
   git-ignored.
 - A/V sync: `out-audio-delay`/`out-video-delay` (ms) compensate for the local device's audio-vs-video
-  output latency; still needed (the SDK doesn't do this for you). Untouched by the upgrade.
+  output latency; still needed (the SDK doesn't do this for you).
+- **Teardown is idempotent and runs on both EOS and READY→NULL** (`gst_agoraioudp_teardown`):
+  the SDK is disconnected first (its callback threads stop), then the audio bridge pipelines are
+  released. `agora_ctx` is guarded by `ctx_lock` against the streaming/appsink/SDK threads.
+  `AgoraIo::disconnect()` joins its watchdog thread and waits (bounded, 2 s) for the SDK's
+  disconnect event — do not reintroduce detached threads or fixed sleeps here; gst-launch
+  teardown wedges were a real production failure.
+- Media buffers are accessed in place with `gst_buffer_map` on all four A/V paths — no per-frame
+  `malloc`/copy. The SDK copies internally on send.

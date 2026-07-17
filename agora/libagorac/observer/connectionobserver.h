@@ -24,6 +24,7 @@ class ConnectionObserver : public agora::rtc::IRtcConnectionObserver,
        _parent(parent){}
        
   int waitUntilConnected(int waitMs) { return connect_ready_.Wait(waitMs); }
+  int waitUntilDisconnected(int waitMs) { return disconnect_ready_.Wait(waitMs); }
 
   void setOnUserStateChanged(const OnUserStateChange_fn& f){
       _onUserStateChanged=f;
