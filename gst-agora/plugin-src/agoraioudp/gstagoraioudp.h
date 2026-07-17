@@ -110,6 +110,8 @@ struct _Gstagoraioudp
 
   gboolean    proxy;
   gboolean    receive_video;            //subscribe to remote video (off by default)
+  gboolean    audio_pcm;                //inport carries raw PCM (enables SDK 3A/AEC)
+  gchar       agora_params[MAX_STRING_LEN];  //setParameters JSON passthrough
 
   gint        mode;                     //different modes of the plugin
   gchar       proxy_ips[MAX_STRING_LEN];

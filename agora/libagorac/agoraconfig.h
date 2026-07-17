@@ -24,6 +24,8 @@ typedef struct{
     int             proxy_timeout;
     char*           proxy_ips;
     bool            receive_video;   /* subscribe to remote video */
+    bool            audio_pcm;       /* inport carries raw PCM S16LE 48k mono; enables SDK 3A/AEC */
+    char*           agora_params;    /* optional setParameters JSON (e.g. che.audio.* tuning) */
 }agora_config_t;
 
 #endif

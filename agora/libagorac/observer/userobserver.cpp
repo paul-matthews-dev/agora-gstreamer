@@ -114,21 +114,24 @@ void UserObserver::onIntraRequestReceived() {
    logMessage("Agora sdk requested an iframe");
 }
 
-#if SDK_BUILD_NUM>=190534 
+/* The SDK reports vad only for the LOCAL user (remote entries always carry
+   vad=0), so taking the max across entries yields the local speaking state. */
+#if SDK_BUILD_NUM>=190534
 void UserObserver::onAudioVolumeIndication(const agora::rtc::AudioVolumeInformation* speakers,
                                        unsigned int speakerNumber, int totalVolume) {
 
-   
-    /* if(speakers!=nullptr && speakers->volume>0){
+    if(speakers==nullptr || _onLocalVad==nullptr){
+        return;
+    }
 
-       if(_onUserVolumeChanged!=nullptr){
-           _onUserVolumeChanged(speakers->userId, speakers->volume);
-       }
-       std::cout<< "spearker: "<<speakers->uid
-                <<" speakerNumber: "<<speakerNumber
-                <<" volume: "<<speakers->volume
-                <<std::endl; 
-     }*/
+    int vad=0, volume=0;
+    for(unsigned int i=0;i<speakerNumber;i++){
+        if((int)speakers[i].vad>vad){
+            vad=speakers[i].vad;
+            volume=speakers[i].volume;
+        }
+    }
+    _onLocalVad(vad, volume);
 }
 
 #else
@@ -136,16 +139,18 @@ void UserObserver::onAudioVolumeIndication(const agora::rtc::AudioVolumeInformat
 void UserObserver::onAudioVolumeIndication(const agora::rtc::AudioVolumeInfo* speakers,
                                        unsigned int speakerNumber, int totalVolume) {
 
-   
-    /* if(speakers!=nullptr && speakers->volume>0){
-       if(_onUserVolumeChanged!=nullptr){
-           _onUserVolumeChanged(speakers->userId, speakers->volume);
-       }
-       std::cout<< "spearker: "<<speakers->uid
-                <<" speakerNumber: "<<speakerNumber
-                <<" volume: "<<speakers->volume
-                <<std::endl; 
-     }*/
+    if(speakers==nullptr || _onLocalVad==nullptr){
+        return;
+    }
+
+    int vad=0, volume=0;
+    for(unsigned int i=0;i<speakerNumber;i++){
+        if((int)speakers[i].vad>vad){
+            vad=speakers[i].vad;
+            volume=speakers[i].volume;
+        }
+    }
+    _onLocalVad(vad, volume);
 }
 
 #endif

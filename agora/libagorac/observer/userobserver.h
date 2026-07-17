@@ -32,6 +32,9 @@ using OnUserLocalTrackStateFn=std::function<void(const std::string& userId,
 
 using OnIframeRequestFn=std::function<void()>;
 
+//local voice-activity report from the SDK's volume indication (vad: 0/1)
+using OnLocalVadFn=std::function<void(int vad, int volume)>;
+
 class UserObserver : public agora::rtc::ILocalUserObserver {
  public:
   UserObserver(agora::rtc::ILocalUser* local_user, const bool& verbose);
@@ -47,6 +50,10 @@ class UserObserver : public agora::rtc::ILocalUserObserver {
 
   void setOnIframeRequestFn(const OnIframeRequestFn& fn){
      _onIframeRequest=fn;
+  }
+
+  void setOnLocalVadFn(const OnLocalVadFn& fn){
+     _onLocalVad=fn;
   }
 
   void setOnUserRemoteTrackStatsFn(const OnUserRemoteTrackStateFn& fn);
@@ -247,6 +254,7 @@ void onVideoSubscribeStateChanged(const char* channel, agora::user_id_t uid,
   OnUserVolumeChangedFn  _onUserVolumeChanged;
 
   OnIframeRequestFn      _onIframeRequest;
+  OnLocalVadFn           _onLocalVad;
 
   bool               _verbose;
 

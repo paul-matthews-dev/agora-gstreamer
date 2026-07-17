@@ -102,6 +102,18 @@ For a **local** build also set `LD_LIBRARY_PATH` to the vendored SDK dir + `agor
    on disconnect. The logmask is process-level libc state that libaosl cannot reset. The
    no-op sink ignores its args, so it's safe regardless of the real callback signature —
    don't "improve" it into reading the format string.
+9. **No hardware audio (ADM) in the arm64 server SDK; 3A only on the PCM path.** The binary
+   has no ALSA backend (no `libasound` NEEDED, no `snd_pcm_*`, no device strings) — the
+   device-manager headers are stubs; `enableAudioDevice=true` cannot open a mic/speaker.
+   AEC/ANS/AGC run **only** on raw PCM pushed via
+   `createCustomAudioTrack(IAudioPcmDataSender, enableAec=true)` (`audio-pcm=true`);
+   pre-encoded Opus (`audio-pcm=false`) bypasses the APM entirely. The SDK accepts PCM
+   **only in exact 10 ms frames** — `AgoraIo::audioPacerThreadFn` (joined in `disconnect()`)
+   paces the UDP-fed ring buffer into 480-sample frames. AEC's far-end reference is the
+   remote audio the SDK decodes for us; alignment is tunable via `che.audio.aec.*` keys
+   through the `agora-params` property (JSON, no spaces — the consumer splits cmdlines on
+   spaces). Local VAD arrives via `setAudioVolumeIndicationParameters(...,reportVad=true)` →
+   `UserObserver::onAudioVolumeIndication` → transition-only `logInfo`.
 
 ## Conventions
 

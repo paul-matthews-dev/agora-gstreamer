@@ -23,7 +23,9 @@ AgoraIoContext_t*  agoraio_init(agora_config_t* config){
                                            config->enableProxy,
                                            config->proxy_timeout,
                                            config->proxy_ips,
-                                           config->receive_video);
+                                           config->receive_video,
+                                           config->audio_pcm,
+                                           config->agora_params ? config->agora_params : "");
 
     if(!ctx->agoraIo->init(config->app_id, config->ch_id, config->user_id)){
        //release whatever the partial init created, so no SDK thread outlives us

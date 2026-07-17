@@ -5,8 +5,10 @@
 #include <chrono>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "agoratype.h"
 #include "helpers/context.h"
@@ -33,7 +35,9 @@ class AgoraIo{
            bool enableProxy=false,
            int proxyTimeout=0,
            const std::string& proxyIps="",
-           bool receiveVideo=false);
+           bool receiveVideo=false,
+           bool audioPcm=false,
+           const std::string& agoraParams="");
 
    bool  init(char* in_app_id,
               char* in_ch_id,
@@ -106,6 +110,11 @@ protected:
 
     void publishUnpublishThreadFn();
 
+    //PCM mode: drains the ring buffer in exactly-10ms frames (SDK requirement)
+    void audioPacerThreadFn();
+
+    void handleLocalVad(int vad, int volume);
+
     void startPublishAudio();
     void startPublishVideo();
 
@@ -142,6 +151,7 @@ protected:
 
     agora::agora_refptr<agora::rtc::IVideoEncodedImageSender> _videoFrameSender;
     agora::agora_refptr<agora::rtc::IAudioEncodedFrameSender>  _audioSender;
+    agora::agora_refptr<agora::rtc::IAudioPcmDataSender>       _pcmSender;
 
     TimePoint                                       _lastVideoUserSwitchTime;
 
@@ -192,6 +202,17 @@ protected:
 
     //subscribe to remote video (off for publish-only deployments)
     bool                                              _receiveVideo;
+
+    //raw-PCM uplink with SDK 3A/AEC (vs pre-encoded pass-through)
+    bool                                              _audioPcm;
+    std::string                                       _agoraParams;
+
+    //PCM ring buffer feeding the 10ms pacer thread
+    std::mutex                                        _pcmBufMutex;
+    std::vector<uint8_t>                              _pcmBuffer;
+    std::thread                                       _audioPacerThread;
+
+    std::atomic<int>                                  _lastVadState;
 
  };
 

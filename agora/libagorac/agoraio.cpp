@@ -28,7 +28,9 @@ AgoraIo::AgoraIo(bool verbose,
                  bool enableProxy,
                  int proxyTimeout,
                  const std::string& proxyIps,
-                 bool receiveVideo):
+                 bool receiveVideo,
+                 bool audioPcm,
+                 const std::string& agoraParams):
  _verbose(verbose),
  _currentVideoUser(""),
  _service(nullptr),
@@ -61,7 +63,10 @@ AgoraIo::AgoraIo(bool verbose,
  _videoWidth(0),
  _videoHeight(0),
  _videoFps(0),
- _receiveVideo(receiveVideo)
+ _receiveVideo(receiveVideo),
+ _audioPcm(audioPcm),
+ _agoraParams(agoraParams),
+ _lastVadState(0)
 {
    _activeUsers.clear();
 }
@@ -235,6 +240,15 @@ bool  AgoraIo::init(char* in_app_id,
        return false;
     }
 
+    //optional raw tuning JSON (e.g. {"che.audio.aec.fixed_delay":80})
+    if(!_agoraParams.empty()){
+        auto* agoraParameter=_connection->getAgoraParameter();
+        if(agoraParameter!=nullptr){
+            int ret=agoraParameter->setParameters(_agoraParams.c_str());
+            logInfo("applied agora-params '"+_agoraParams+"' -> "+std::to_string(ret));
+        }
+    }
+
     _videoFrameSender=_factory->createVideoEncodedImageSender();
     if (!_videoFrameSender) {
        logInfo("Failed to create video frame sender!");
@@ -259,16 +273,28 @@ bool  AgoraIo::init(char* in_app_id,
          return false;
      }
 
-     //audio
-    // Create audio data sender
-     _audioSender = _factory->createAudioEncodedFrameSender();
-     if (!_audioSender) {
-        return false;
-      }
-
-     // Create audio track
-     _customAudioTrack =_service->createCustomAudioTrack(_audioSender, agora::base::MIX_DISABLED);
+     //audio: either raw PCM through the SDK's 3A pipeline (AEC/ANS/AGC), or
+     //pre-encoded frames passed straight through (no audio processing possible)
+     if(_audioPcm){
+        _pcmSender = _factory->createAudioPcmDataSender();
+        if (!_pcmSender) {
+           logInfo("Failed to create PCM audio sender!");
+           return false;
+        }
+        //enableAec=true: the APM cancels the echo of the remote audio we play
+        //out (the SDK knows the far-end signal - it decodes/mixes it for us)
+        _customAudioTrack =_service->createCustomAudioTrack(_pcmSender, /*enableAec=*/true);
+        logInfo("audio: raw PCM uplink with SDK 3A/AEC enabled");
+     }
+     else{
+        _audioSender = _factory->createAudioEncodedFrameSender();
+        if (!_audioSender) {
+           return false;
+        }
+        _customAudioTrack =_service->createCustomAudioTrack(_audioSender, agora::base::MIX_DISABLED);
+     }
      if (!_customAudioTrack) {
+        logInfo("Failed to create audio track!");
         return false;
      }
 
@@ -409,11 +435,33 @@ bool  AgoraIo::init(char* in_app_id,
 
     });
 
+    //local voice-activity reporting (diagnostics; only meaningful with the
+    //PCM/3A path since encoded audio bypasses the SDK's analysis)
+    if(_audioPcm){
+        _userObserver->setOnLocalVadFn([this](int vad, int volume){
+            handleLocalVad(vad, volume);
+        });
+        _connection->getLocalUser()->setAudioVolumeIndicationParameters(500, 3, true);
+    }
+
     _isRunning=true;
 
     _publishUnpublishCheckThread=std::thread(&AgoraIo::publishUnpublishThreadFn,this);
 
+    if(_audioPcm){
+        _pcmBuffer.reserve(96000); //1s of S16LE 48k mono
+        _audioPacerThread=std::thread(&AgoraIo::audioPacerThreadFn,this);
+    }
+
     return true;
+}
+
+void AgoraIo::handleLocalVad(int vad, int volume){
+
+    if(vad!=_lastVadState.exchange(vad)){
+        logInfo(vad ? ("local voice activity: speaking (volume "+std::to_string(volume)+")")
+                    : "local voice activity: silent");
+    }
 }
 
 
@@ -610,7 +658,25 @@ int AgoraIo::sendAudio(const uint8_t * buffer,
         return 0;
     }
 
-    if(_outSyncBuffer!=nullptr && _isRunning){
+    if(!_isRunning){
+        return 0;
+    }
+
+    if(_audioPcm){
+        //raw PCM: queue for the 10ms pacer (the SDK only accepts exact 10ms
+        //frames, and UDP/ALSA chunk sizes are arbitrary)
+        startPublishAudio();
+
+        std::lock_guard<std::mutex> guard(_pcmBufMutex);
+        const size_t MAX_PCM_BUFFER=96000; //1s of S16LE 48k mono
+        if(_pcmBuffer.size()+len>MAX_PCM_BUFFER){
+            size_t excess=_pcmBuffer.size()+len-MAX_PCM_BUFFER;
+            _pcmBuffer.erase(_pcmBuffer.begin(), _pcmBuffer.begin()+std::min(excess,_pcmBuffer.size()));
+            logMessage("pcm ring buffer overflow: dropped "+std::to_string(excess)+" bytes");
+        }
+        _pcmBuffer.insert(_pcmBuffer.end(), buffer, buffer+len);
+    }
+    else if(_outSyncBuffer!=nullptr){
 
         startPublishAudio();
         _outSyncBuffer->addAudio(buffer, len, timestamp);
@@ -619,6 +685,42 @@ int AgoraIo::sendAudio(const uint8_t * buffer,
     _lastTimeAudioReceived=Now();
 
     return 0;
+}
+
+/* PCM mode: deliver exactly 480-sample (10ms @ 48kHz mono S16LE) frames on a
+   10ms cadence — the SDK rejects any other framing. Underrun sends nothing. */
+void AgoraIo::audioPacerThreadFn(){
+
+    logMessage("Agoraio: audio pacer thread started");
+
+    const size_t FRAME_BYTES=960; //480 samples * 2 bytes
+    uint8_t frame[FRAME_BYTES];
+
+    TimePoint nextTick=Now();
+    while(_isRunning){
+
+        nextTick += std::chrono::milliseconds(10);
+        std::this_thread::sleep_until(nextTick);
+
+        bool haveFrame=false;
+        {
+            std::lock_guard<std::mutex> guard(_pcmBufMutex);
+            if(_pcmBuffer.size()>=FRAME_BYTES){
+                memcpy(frame, _pcmBuffer.data(), FRAME_BYTES);
+                _pcmBuffer.erase(_pcmBuffer.begin(), _pcmBuffer.begin()+FRAME_BYTES);
+                haveFrame=true;
+            }
+        }
+
+        if(haveFrame && _pcmSender && !_isPaused){
+            _pcmSender->sendAudioPcmData(frame, 0,
+                                         getAgoraCurrentMonotonicTimeInMs(),
+                                         480,
+                                         agora::rtc::TWO_BYTES_PER_SAMPLE,
+                                         1,
+                                         48000);
+        }
+    }
 }
 
 void AgoraIo::disconnect(){
@@ -631,9 +733,12 @@ void AgoraIo::disconnect(){
 
    _isRunning=false;
 
-   //stop the publish/unpublish watchdog before touching the connection
+   //stop the publish/unpublish watchdog and pacer before touching the connection
    if(_publishUnpublishCheckThread.joinable()){
        _publishUnpublishCheckThread.join();
+   }
+   if(_audioPacerThread.joinable()){
+       _audioPacerThread.join();
    }
 
    //init may have failed at any point: release whatever exists (an
@@ -666,6 +771,7 @@ void AgoraIo::disconnect(){
    _userObserver.reset();
 
    _audioSender = nullptr;
+   _pcmSender = nullptr;
    _videoFrameSender = nullptr;
    _customAudioTrack = nullptr;
    _customVideoTrack = nullptr;

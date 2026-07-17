@@ -118,7 +118,9 @@ enum
   OPERATIONAL_MODE,
   PROXY_CONNECT_TIMEOUT,
   PROXY_IPS,
-  RECEIVE_VIDEO
+  RECEIVE_VIDEO,
+  AUDIO_PCM,
+  AGORA_PARAMS
 };
 
 /* Operational modes:
@@ -320,6 +322,8 @@ int init_agora(Gstagoraioudp *agoraIO){
    config.proxy_timeout= agoraIO->reconnect_timeout;   /*proxy timeout*/
    config.proxy_ips= agoraIO->proxy_ips;               /*proxy ips*/
    config.receive_video=agoraIO->receive_video; /*subscribe to remote video*/
+   config.audio_pcm=agoraIO->audio_pcm;         /*raw PCM uplink -> SDK 3A/AEC*/
+   config.agora_params=agoraIO->agora_params;   /*setParameters JSON*/
 
     /*initialize agora*/
    agoraIO->agora_ctx=agoraio_init(&config);
@@ -768,6 +772,23 @@ gst_agoraioudp_class_init (GstagoraioudpClass * klass)
           "subscribe to remote video and push it out of the src pad",
           FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
+    // audio-pcm: inport carries raw PCM (S16LE, 48 kHz, mono) instead of Opus.
+    // The backend paces it into 10 ms frames and publishes through the SDK's
+    // audio processing pipeline with AEC enabled (plus ANS/AGC/VAD). The
+    // default (false) keeps the legacy pre-encoded pass-through, which gets
+    // no audio processing at all.
+    g_object_class_install_property (gobject_class, AUDIO_PCM,
+      g_param_spec_boolean ("audio-pcm", "audio-pcm",
+          "inport carries raw PCM S16LE 48kHz mono; enables SDK AEC/ANS/AGC/VAD",
+          FALSE, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
+    // agora-params: raw setParameters JSON forwarded to the SDK after connect,
+    // e.g. '{"che.audio.aec.fixed_delay":80}' for AEC delay tuning.
+    g_object_class_install_property (gobject_class, AGORA_PARAMS,
+      g_param_spec_string ("agora-params", "agora-params",
+          "JSON passed to the SDK's setParameters after connect (tuning knobs)",
+          NULL, G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
+
   gst_element_class_set_static_metadata (gstelement_class,
     "Agora RTC bridge (agoraioudp)",
     "Source/Sink/Network",
@@ -890,6 +911,8 @@ gst_agoraioudp_init (Gstagoraioudp * agoraIO)
   agoraIO->verbose = FALSE;
   agoraIO->audio=FALSE;
   agoraIO->receive_video=FALSE;
+  agoraIO->audio_pcm=FALSE;
+  memset(agoraIO->agora_params, 0, MAX_STRING_LEN);
 
   agoraIO->mode=3;
 
@@ -966,6 +989,13 @@ gst_agoraioudp_set_property (GObject * object, guint prop_id,
     case RECEIVE_VIDEO:
          agoraIO->receive_video = g_value_get_boolean (value);
          break;
+    case AUDIO_PCM:
+         agoraIO->audio_pcm = g_value_get_boolean (value);
+         break;
+    case AGORA_PARAMS:
+        str=g_value_get_string (value);
+        g_strlcpy(agoraIO->agora_params, str ? str : "", MAX_STRING_LEN);
+        break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
         break;
@@ -1029,6 +1059,12 @@ gst_agoraioudp_get_property (GObject * object, guint prop_id,
         break;
     case RECEIVE_VIDEO:
         g_value_set_boolean (value, agoraIO->receive_video);
+        break;
+    case AUDIO_PCM:
+        g_value_set_boolean (value, agoraIO->audio_pcm);
+        break;
+    case AGORA_PARAMS:
+        g_value_set_string (value, agoraIO->agora_params);
         break;
     default:
         G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);

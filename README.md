@@ -148,10 +148,20 @@ gst-launch-1.0 -v udpsrc port=7372 ! audio/x-raw,format=S16LE,channels=1,rate=48
   audioconvert ! autoaudiosink
 ```
 
-Audio from the mic into Agora (writes `inport`):
+Audio from the mic into Agora (writes `inport`). Default (`audio-pcm=false`, Opus —
+pre-encoded audio bypasses ALL of the SDK's audio processing):
 
 ```sh
 gst-launch-1.0 -v alsasrc ! audioconvert ! opusenc ! udpsink host=127.0.0.1 port=7373
+```
+
+With `audio-pcm=true` on the element, send raw PCM instead and the SDK applies its full
+audio processing — **AEC** (echo of the `outport` playback is cancelled), **ANS** noise
+suppression, **AGC** gain control — plus local voice-activity (VAD) logging:
+
+```sh
+gst-launch-1.0 -v alsasrc ! audioconvert ! audioresample ! \
+  audio/x-raw,format=S16LE,channels=1,rate=48000 ! udpsink host=127.0.0.1 port=7373
 ```
 
 ## Element properties
@@ -164,6 +174,8 @@ gst-launch-1.0 -v alsasrc ! audioconvert ! opusenc ! udpsink host=127.0.0.1 port
 | `mode` | `3` | `1` = local loopback test (no SDK), `2` = video only (no audio bridge), `3` = video + audio |
 | `audio` | `false` | Treat this element's pads as audio instead of video |
 | `receive-video` | `false` | Subscribe to remote video and push it out of the src pad |
+| `audio-pcm` | `false` | `inport` carries raw PCM (S16LE, 48 kHz, mono) instead of Opus; enables the SDK's AEC/ANS/AGC and VAD reporting |
+| `agora-params` | — | Raw `setParameters` JSON applied after connect (e.g. `{"che.audio.aec.fixed_delay":80}`) |
 | `host` | `127.0.0.1` | UDP host for the audio bridge |
 | `outport` | `7374` | UDP port audio **from** Agora is sent to (PCM S16LE) |
 | `inport` | `7373` | UDP port audio **to** Agora is read from (Opus) |
