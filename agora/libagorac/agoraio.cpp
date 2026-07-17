@@ -1,6 +1,7 @@
 #include "agoraio.h"
 
 #include <dlfcn.h>
+#include <syslog.h>
 #include <cstdarg>
 #include <cstring>
 #include <sstream>
@@ -77,11 +78,21 @@ static void aoslNoopVlog(int /*level*/, const char* /*fmt*/, va_list /*ap*/) {}
 static void quietAoslLogging()
 {
     void* h = dlopen("libaosl.so", RTLD_LAZY);
-    if(!h) return;
-    typedef void (*aosl_vlog_func_t)(int, const char*, va_list);
-    typedef void (*aosl_set_vlog_func_fn)(aosl_vlog_func_t);
-    auto setVlog = (aosl_set_vlog_func_fn)dlsym(h, "aosl_set_vlog_func");
-    if(setVlog) setVlog(&aoslNoopVlog);
+    if(h){
+        typedef void (*aosl_vlog_func_t)(int, const char*, va_list);
+        typedef void (*aosl_set_vlog_func_fn)(aosl_vlog_func_t);
+        auto setVlog = (aosl_set_vlog_func_fn)dlsym(h, "aosl_set_vlog_func");
+        if(setVlog) setVlog(&aoslNoopVlog);
+    }
+
+    // The vlog hook alone is not enough: the SDK swaps the sink back to the
+    // built-in vsyslog default while the service is released, and the SDK
+    // threads exiting at that point each log "AOSL: Java VM not set, so do
+    // nothing for thread detach" at EMERGENCY priority — which journald
+    // broadcasts (wall) to every logged-in terminal. Mask emerg/alert for
+    // this process so libc drops those before they reach syslogd; nothing in
+    // a media pipeline legitimately logs at these priorities.
+    setlogmask(LOG_UPTO(LOG_DEBUG) & ~(LOG_MASK(LOG_EMERG) | LOG_MASK(LOG_ALERT)));
 }
 
 bool AgoraIo::initAgoraService(const std::string& appid)
@@ -97,7 +108,7 @@ bool AgoraIo::initAgoraService(const std::string& appid)
 
     int32_t buildNum = 0;
     getAgoraSdkVersion(&buildNum);
-    logMessage("Agora SDK version: "+std::to_string(buildNum));
+    logInfo("Agora SDK version: "+std::to_string(buildNum));
 
     agora::base::AgoraServiceConfiguration scfg;
     scfg.appId = appid.c_str();
@@ -201,7 +212,7 @@ bool  AgoraIo::init(char* in_app_id,
         _connection->getLocalUser()->registerAudioFrameObserver(_pcmFrameObserver.get());
     }
 
-    logMessage(std::string("connecting to: ")+in_ch_id+", proxy timeout "+std::to_string(_proxyConnectionTimeOut));
+    logInfo(std::string("connecting to: ")+in_ch_id+", proxy timeout "+std::to_string(_proxyConnectionTimeOut));
     doConnect(in_app_id, in_ch_id, in_user_id);
     if (!checkConnection() && _enableProxy) {
 	_connection->disconnect();
@@ -220,13 +231,13 @@ bool  AgoraIo::init(char* in_app_id,
 
     if (checkConnection()==false){
 
-       logMessage("Error connecting to channel");
+       logInfo("Error connecting to channel");
        return false;
     }
 
     _videoFrameSender=_factory->createVideoEncodedImageSender();
     if (!_videoFrameSender) {
-       logMessage("Failed to create video frame sender!");
+       logInfo("Failed to create video frame sender!");
        return false;
     }
 
@@ -244,7 +255,7 @@ bool  AgoraIo::init(char* in_app_id,
     // Create video track
     _customVideoTrack=_service->createCustomVideoTrack(_videoFrameSender, option);
     if (!_customVideoTrack) {
-         logMessage("Failed to create video track!");
+         logInfo("Failed to create video track!");
          return false;
      }
 
@@ -494,7 +505,7 @@ void AgoraIo::handleUserStateChange(const std::string& userId,
     _connection->getLocalUser()->subscribeVideo(userId.c_str(), subscriptionOptions);
 
     _currentVideoUser=userId;
-    logMessage("subscribed to video user #"+_currentVideoUser);
+    logInfo("subscribed to video user #"+_currentVideoUser);
 
     addEvent(AGORA_EVENT_ON_VIDEO_SUBSCRIBED,userId,0,0);
  }
@@ -502,7 +513,7 @@ void AgoraIo::handleUserStateChange(const std::string& userId,
 void AgoraIo::subscribeAudioUser(const std::string& userId){
 
     _connection->getLocalUser()->subscribeAudio(userId.c_str());
-    logMessage("subscribed to audio user "+userId);
+    logInfo("subscribed to audio user "+userId);
 }
 void AgoraIo::unsubscribeAudioUser(const std::string& userId){
 
@@ -614,6 +625,10 @@ void AgoraIo::disconnect(){
 
     logMessage("start agora disconnect ...");
 
+   //re-assert the aosl silencers: the SDK may have swapped the vlog sink
+   //back at any point, and teardown is when the thread-detach spam fires
+   quietAoslLogging();
+
    _isRunning=false;
 
    //stop the publish/unpublish watchdog before touching the connection
@@ -635,10 +650,10 @@ void AgoraIo::disconnect(){
    if(_outSyncBuffer!=nullptr) _outSyncBuffer->stop();
    if(_inSyncBuffer!=nullptr)  _inSyncBuffer->stop();
 
-   if(_customAudioTrack!=nullptr){
+   if(_customAudioTrack){
        _connection->getLocalUser()->unpublishAudio(_customAudioTrack);
    }
-   if(_customVideoTrack!=nullptr){
+   if(_customVideoTrack){
        _connection->getLocalUser()->unpublishVideo(_customVideoTrack);
    }
 
@@ -665,7 +680,7 @@ void AgoraIo::disconnect(){
 
    h264FrameReceiver=nullptr;
 
-   logMessage("Agora disconnected");
+   logInfo("Agora disconnected");
 }
 
 void AgoraIo::unsubscribeAllVideo(){
@@ -754,7 +769,7 @@ void AgoraIo::startPublishAudio(){
     _connection->getLocalUser()->publishAudio(_customAudioTrack);
     _isPublishingAudio=true;
 
-    logMessage("Agoraio: published audio");
+    logInfo("Agoraio: published audio");
 
  }
 void AgoraIo::startPublishVideo(){
@@ -765,7 +780,7 @@ void AgoraIo::startPublishVideo(){
      _connection->getLocalUser()->publishVideo(_customVideoTrack);
     _isPublishingVideo=true;
 
-    logMessage("Agoraio: published video");
+    logInfo("Agoraio: published video");
 }
 
 void AgoraIo::stopPublishAudio(){
@@ -776,7 +791,7 @@ void AgoraIo::stopPublishAudio(){
     _connection->getLocalUser()->unpublishAudio(_customAudioTrack);
     _isPublishingAudio=false;
 
-    logMessage("Agoraio: unpublished audio");
+    logInfo("Agoraio: unpublished audio");
 }
 void AgoraIo::stopPublishVideo(){
 
@@ -787,7 +802,7 @@ void AgoraIo::stopPublishVideo(){
      _connection->getLocalUser()->unpublishVideo(_customVideoTrack);
     _isPublishingVideo=false;
 
-    logMessage("Agoraio: unpublished video");
+    logInfo("Agoraio: unpublished video");
 }
 
 void AgoraIo::setVideoDimensions(int width, int height, int fps){

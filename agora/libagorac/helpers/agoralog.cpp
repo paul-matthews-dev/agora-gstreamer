@@ -1,6 +1,7 @@
 #include "agoralog.h"
 
 #include <atomic>
+#include <cstdio>
 #include <fstream>
 #include <mutex>
 #include <sys/time.h>
@@ -45,4 +46,13 @@ void logMessage(const std::string& message){
   }
   file<<fullTime<<": "<<message<<'\n';
   file.flush();
+}
+
+void logInfo(const std::string& message){
+
+  //stdout is captured by the supervising process (journal) — always emit
+  printf("AgoraIO: %s\n", message.c_str());
+  fflush(stdout);
+
+  logMessage(message);
 }

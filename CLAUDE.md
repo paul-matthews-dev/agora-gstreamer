@@ -25,7 +25,10 @@ Two layers, connected by a flat C ABI:
    owns the Agora service/connection and publish/subscribe. Sub-dirs: `observer/` (SDK
    callbacks), `helpers/` (log, utilities, context). `syncbuffer.cpp` is a thread-free
    delay buffer: pure pass-through unless an in/out delay property is set. Backend logging
-   (`helpers/agoralog.cpp`, `/tmp/agora.log`) is gated at runtime by the `verbose` property.
+   (`helpers/agoralog.cpp`) has two tiers: `logMessage` (debug, `/tmp/agora.log`, gated at
+   runtime by the `verbose` property) and `logInfo` (connection lifecycle — connected /
+   user joined/left / publish state — always printed to stdout with an `AgoraIO:` prefix so
+   the journal captures them; used for join/leave diagnostics in production).
 
 2. **`gst-agora/plugin-src/agoraioudp/gstagoraioudp.c`** — the C element. It fills an
    `agora_config_t` (`agora/libagorac/agoraconfig.h`), calls `agoraio_init(&config)` for an
@@ -87,14 +90,18 @@ For a **local** build also set `LD_LIBRARY_PATH` to the vendored SDK dir + `agor
    is needed.
 7. **Region: mainland China is excluded** — `scfg.areaCode = AREA_CODE_OVS` in
    `AgoraIo::initAgoraService()`. This is a deliberate fork behaviour.
-8. **`libaosl` spams syslog.** The 4.4.x `libaosl.so` logs a harmless
-   `AOSL: Java VM not set ...` warning via `vsyslog` (floods the journal on non-Android
-   platforms). It is emitted **unconditionally** — the `aosl_set_log_level` threshold does
-   NOT gate it. `AgoraIo::initAgoraService()` calls `quietAoslLogging()`, which resolves
-   `aosl_set_vlog_func` from the already-loaded `libaosl` via `dlopen`/`dlsym` (no header is
-   shipped) and installs a no-op sink, silencing all `libaosl` logging. This needs `-ldl`
-   in `agora/libagorac/makefile`. The no-op ignores its args, so it's safe regardless of the
-   real callback signature — don't "improve" it into reading the format string.
+8. **`libaosl` spams syslog — two layers of defence, keep both.** The 4.4.x `libaosl.so`
+   logs harmless `AOSL: Java VM not set ...` warnings via `vsyslog` on non-Android
+   platforms, unconditionally (`aosl_set_log_level` does NOT gate them).
+   `quietAoslLogging()` (called from `initAgoraService()` **and again in `disconnect()`**):
+   (a) resolves `aosl_set_vlog_func` via `dlopen`/`dlsym` (no header is shipped; needs
+   `-ldl`) and installs a no-op sink — but the SDK swaps that sink back around service
+   init/release, so it cannot cover teardown; and (b) calls
+   `setlogmask(~(EMERG|ALERT))` — the per-thread-detach variant is logged at **emergency
+   priority**, which journald broadcasts (wall) to every terminal as each SDK thread exits
+   on disconnect. The logmask is process-level libc state that libaosl cannot reset. The
+   no-op sink ignores its args, so it's safe regardless of the real callback signature —
+   don't "improve" it into reading the format string.
 
 ## Conventions
 
