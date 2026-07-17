@@ -7,6 +7,8 @@
 #include "userobserver.h"
 #include "../helpers/agoralog.h"
 
+#include <cstring>
+
 UserObserver::UserObserver(agora::rtc::ILocalUser* local_user, const bool& verbose)
     : local_user_(local_user),
     _onUserInfoChanged(nullptr),
@@ -114,8 +116,9 @@ void UserObserver::onIntraRequestReceived() {
    logMessage("Agora sdk requested an iframe");
 }
 
-/* The SDK reports vad only for the LOCAL user (remote entries always carry
-   vad=0), so taking the max across entries yields the local speaking state. */
+/* The SDK fires this twice per interval: once for the LOCAL user (userId "0",
+   vad meaningful) and once for remote users (vad always 0). Only the local
+   entry may drive the vad state, otherwise the two reports flap it. */
 #if SDK_BUILD_NUM>=190534
 void UserObserver::onAudioVolumeIndication(const agora::rtc::AudioVolumeInformation* speakers,
                                        unsigned int speakerNumber, int totalVolume) {
@@ -124,14 +127,14 @@ void UserObserver::onAudioVolumeIndication(const agora::rtc::AudioVolumeInformat
         return;
     }
 
-    int vad=0, volume=0;
     for(unsigned int i=0;i<speakerNumber;i++){
-        if((int)speakers[i].vad>vad){
-            vad=speakers[i].vad;
-            volume=speakers[i].volume;
+        if(speakers[i].userId!=nullptr &&
+           (strcmp(speakers[i].userId,"0")==0 ||
+            (!_localUserId.empty() && _localUserId==speakers[i].userId))){
+            _onLocalVad((int)speakers[i].vad, (int)speakers[i].volume);
+            return;
         }
     }
-    _onLocalVad(vad, volume);
 }
 
 #else
@@ -143,14 +146,12 @@ void UserObserver::onAudioVolumeIndication(const agora::rtc::AudioVolumeInfo* sp
         return;
     }
 
-    int vad=0, volume=0;
     for(unsigned int i=0;i<speakerNumber;i++){
-        if((int)speakers[i].vad>vad){
-            vad=speakers[i].vad;
-            volume=speakers[i].volume;
+        if(speakers[i].uid==0){
+            _onLocalVad((int)speakers[i].vad, (int)speakers[i].volume);
+            return;
         }
     }
-    _onLocalVad(vad, volume);
 }
 
 #endif

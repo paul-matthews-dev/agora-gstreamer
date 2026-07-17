@@ -9,6 +9,7 @@
 
 #include <mutex>
 #include <functional>
+#include <string>
 
 #include "AgoraBase.h"
 #include "NGIAgoraLocalUser.h"
@@ -54,6 +55,12 @@ class UserObserver : public agora::rtc::ILocalUserObserver {
 
   void setOnLocalVadFn(const OnLocalVadFn& fn){
      _onLocalVad=fn;
+  }
+
+  //the uid this connection joined with; the local volume report may carry it
+  //instead of the conventional "0"
+  void setLocalUserId(const std::string& uid){
+     _localUserId=uid;
   }
 
   void setOnUserRemoteTrackStatsFn(const OnUserRemoteTrackStateFn& fn);
@@ -255,6 +262,7 @@ void onVideoSubscribeStateChanged(const char* channel, agora::user_id_t uid,
 
   OnIframeRequestFn      _onIframeRequest;
   OnLocalVadFn           _onLocalVad;
+  std::string            _localUserId;
 
   bool               _verbose;
 

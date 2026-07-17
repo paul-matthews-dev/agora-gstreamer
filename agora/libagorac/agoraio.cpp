@@ -188,6 +188,23 @@ bool  AgoraIo::init(char* in_app_id,
         return false;
     }
 
+    //tuning JSON, applied BEFORE joining (many che.audio.* keys only take
+    //effect pre-join). Multiple ';'-separated JSON snippets are applied
+    //individually with per-key result logging, so the journal shows exactly
+    //which keys this SDK build accepts (0 = accepted).
+    if(!_agoraParams.empty()){
+        auto* agoraParameter=_connection->getAgoraParameter();
+        if(agoraParameter!=nullptr){
+            std::stringstream ss(_agoraParams);
+            std::string item;
+            while(std::getline(ss, item, ';')){
+                if(item.empty()) continue;
+                int ret=agoraParameter->setParameters(item.c_str());
+                logInfo("agora-params '"+item+"' -> "+std::to_string(ret));
+            }
+        }
+    }
+
     _factory = _service->createMediaNodeFactory();
     if (!_factory)
     {
@@ -238,15 +255,6 @@ bool  AgoraIo::init(char* in_app_id,
 
        logInfo("Error connecting to channel");
        return false;
-    }
-
-    //optional raw tuning JSON (e.g. {"che.audio.aec.fixed_delay":80})
-    if(!_agoraParams.empty()){
-        auto* agoraParameter=_connection->getAgoraParameter();
-        if(agoraParameter!=nullptr){
-            int ret=agoraParameter->setParameters(_agoraParams.c_str());
-            logInfo("applied agora-params '"+_agoraParams+"' -> "+std::to_string(ret));
-        }
     }
 
     _videoFrameSender=_factory->createVideoEncodedImageSender();
@@ -438,6 +446,7 @@ bool  AgoraIo::init(char* in_app_id,
     //local voice-activity reporting (diagnostics; only meaningful with the
     //PCM/3A path since encoded audio bypasses the SDK's analysis)
     if(_audioPcm){
+        _userObserver->setLocalUserId(in_user_id ? in_user_id : "");
         _userObserver->setOnLocalVadFn([this](int vad, int volume){
             handleLocalVad(vad, volume);
         });
@@ -688,13 +697,25 @@ int AgoraIo::sendAudio(const uint8_t * buffer,
 }
 
 /* PCM mode: deliver exactly 480-sample (10ms @ 48kHz mono S16LE) frames on a
-   10ms cadence — the SDK rejects any other framing. Underrun sends nothing. */
+   10ms cadence — the SDK rejects any other framing.
+
+   Resilience matters more than raw latency here: the ALSA capture clock is
+   not the system clock (measured ~0.03% slow on this device), so a naive
+   "one frame per tick, skip on empty" pacer underruns every ~30s and each
+   underrun is an audible gap. Instead: (a) prime with 40ms before starting
+   to drain, and re-prime after any underrun (one longer gap instead of a
+   string of 10ms ones), and (b) drain up to 2 frames per tick when backlog
+   builds, so clock drift never accumulates. */
 void AgoraIo::audioPacerThreadFn(){
 
     logMessage("Agoraio: audio pacer thread started");
 
-    const size_t FRAME_BYTES=960; //480 samples * 2 bytes
-    uint8_t frame[FRAME_BYTES];
+    const size_t FRAME_BYTES=960;              //480 samples * 2 bytes
+    const size_t PRIME_BYTES=4*FRAME_BYTES;    //40ms of buffered audio
+    const size_t BACKLOG_BYTES=6*FRAME_BYTES;  //start double-draining above 60ms
+    uint8_t frame[2*FRAME_BYTES];
+
+    bool primed=false;
 
     TimePoint nextTick=Now();
     while(_isRunning){
@@ -702,23 +723,37 @@ void AgoraIo::audioPacerThreadFn(){
         nextTick += std::chrono::milliseconds(10);
         std::this_thread::sleep_until(nextTick);
 
-        bool haveFrame=false;
+        size_t framesToSend=0;
         {
             std::lock_guard<std::mutex> guard(_pcmBufMutex);
-            if(_pcmBuffer.size()>=FRAME_BYTES){
-                memcpy(frame, _pcmBuffer.data(), FRAME_BYTES);
-                _pcmBuffer.erase(_pcmBuffer.begin(), _pcmBuffer.begin()+FRAME_BYTES);
-                haveFrame=true;
+
+            if(!primed){
+                if(_pcmBuffer.size()>=PRIME_BYTES){
+                    primed=true;
+                }
+            }
+            else if(_pcmBuffer.size()<FRAME_BYTES){
+                primed=false;   //underrun: rebuild the cushion before resuming
+                logMessage("audio pacer: underrun, re-priming");
+            }
+
+            if(primed){
+                framesToSend=(_pcmBuffer.size()>=BACKLOG_BYTES) ? 2 : 1;
+                size_t bytes=framesToSend*FRAME_BYTES;
+                memcpy(frame, _pcmBuffer.data(), bytes);
+                _pcmBuffer.erase(_pcmBuffer.begin(), _pcmBuffer.begin()+bytes);
             }
         }
 
-        if(haveFrame && _pcmSender && !_isPaused){
-            _pcmSender->sendAudioPcmData(frame, 0,
-                                         getAgoraCurrentMonotonicTimeInMs(),
-                                         480,
-                                         agora::rtc::TWO_BYTES_PER_SAMPLE,
-                                         1,
-                                         48000);
+        if(_pcmSender && !_isPaused){
+            for(size_t i=0;i<framesToSend;i++){
+                _pcmSender->sendAudioPcmData(frame+i*FRAME_BYTES, 0,
+                                             getAgoraCurrentMonotonicTimeInMs(),
+                                             480,
+                                             agora::rtc::TWO_BYTES_PER_SAMPLE,
+                                             1,
+                                             48000);
+            }
         }
     }
 }
