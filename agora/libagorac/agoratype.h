@@ -1,31 +1,16 @@
 #ifndef _AGORA_TYPE_H_
 #define _AGORA_TYPE_H_
 
-#include <string.h>
 #include <chrono>
-#include <algorithm>
-#include <cmath>
 #include <memory>
 
 #include "workqueue.h"
-
-class AgoraDecoder;
-using AgoraDecoder_ptr=std::shared_ptr<AgoraDecoder>;
-
-class AgoraEncoder;
-using AgoraEncoder_ptr=std::shared_ptr<AgoraEncoder>;
-
-class LocalConfig;
-using LocalConfig_ptr=std::shared_ptr<LocalConfig>;
+#include "agorac.h"   /* event_fn (via agoraconfig.h) and agora_media_out_fn */
 
 class SyncBuffer;
 using SyncBuffer_ptr=std::shared_ptr<SyncBuffer>;
 
-
 using TimePoint=std::chrono::steady_clock::time_point;
-
-typedef  struct agora_context_t agora_context_t;
-typedef  void (*agora_log_func_t)(void*, const char*);
 
 enum AgoraEventType{
 
@@ -59,14 +44,4 @@ enum State{
    USER_STATE_MIC_OFF
 };
 
-typedef void (*event_fn)(void* userData, 
-                         int type, 
-                         const char* userName,
-                         long param1,
-                         long param2,
-                         long* states);
-
-typedef  void (*agora_media_out_fn)(const uint8_t* buffer,
-                                    uint64_t len,
-										      void* user_data);
-#endif 
+#endif

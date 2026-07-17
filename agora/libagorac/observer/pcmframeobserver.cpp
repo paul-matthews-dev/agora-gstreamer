@@ -82,7 +82,13 @@ _isUserJoined(false){
  bool PcmFrameObserver::onPlaybackAudioFrameBeforeMixing(unsigned int userId, AudioFrame& audioFrame) {
 #endif
 
-#if SDK_BUILD_NUM>=190534 
+  //speaking detection only feeds active-speaker video switching; skip the
+  //per-frame volume scan and map lookup entirely when nobody consumes it
+  if(_onUserSpeaking==nullptr){
+      return true;
+  }
+
+#if SDK_BUILD_NUM>=190534
   auto userIdString=std::string(userId);
 #else
    auto userIdString=std::to_string(userId);

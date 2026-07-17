@@ -20,7 +20,7 @@ void SampleEvent::Set() {
 
 int SampleEvent::Wait(int wait_ms) {
   std::unique_lock<std::mutex> _(lock_);
-  int64_t expired_time = tick_ms() + wait_ms;
+  uint64_t expired_time = tick_ms() + wait_ms;
   // prevent spurious wakeups from doing harm
   while (!signal_) {
     if (wait_ms < 0) {

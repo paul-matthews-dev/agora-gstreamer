@@ -15,8 +15,9 @@ ordinary GStreamer pipeline segments.
 
 - **Video → Agora**: its sink pad accepts encoded **H.264** (byte-stream) and publishes it
   to the channel.
-- **Video ← Agora**: its src pad emits the remote participant's encoded **H.264**, ready to
-  feed `decodebin`.
+- **Video ← Agora** (opt-in, `receive-video=true`): its src pad emits the remote
+  participant's encoded **H.264**, ready to feed `decodebin`. Off by default — remote
+  video is not even subscribed, saving downlink bandwidth on publish-only devices.
 - **Audio** is bridged over local UDP so it can live in a separate pipeline/process:
   - audio **from** Agora is sent as raw PCM (`S16LE`, 48 kHz, mono) to `host:outport`,
   - audio **to** Agora is read as Opus from `host:inport`.
@@ -51,8 +52,7 @@ The C element parses properties/caps and forwards frames across a flat C ABI int
 sudo apt-get update
 sudo apt-get install -y \
   build-essential meson ninja-build pkg-config git \
-  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-  libx264-dev libopus-dev libavcodec-dev libavutil-dev libswscale-dev
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
 ```
 
 **Runtime dependencies** (the GStreamer element sets the pipelines use):
@@ -126,13 +126,18 @@ gst-inspect-1.0 agoraioudp
 gst-launch-1.0 -e \
   v4l2src device=/dev/video0 ! image/jpeg,width=1280,height=960,framerate=15/1 ! jpegdec ! \
   videoconvert ! x264enc key-int-max=30 tune=zerolatency bitrate=1500 speed-preset=veryfast ! \
-  queue ! agoraioudp appid=YOUR_APPID channel=YOUR_CHANNEL userid=101 outport=7372 inport=7373 ! \
-  queue ! decodebin ! queue ! autovideosink
+  queue ! agoraioudp appid=YOUR_APPID channel=YOUR_CHANNEL userid=101 outport=7372 inport=7373 \
+  receive-video=true ! queue ! decodebin ! queue ! autovideosink
 ```
 
-> `agoraioudp` accepts ANY caps, so if a branch downstream prefers `avc`, pin
-> `video/x-h264,stream-format=byte-stream,alignment=au` before the element to keep
-> `x264enc` in byte-stream mode.
+> The sink pad requires `video/x-h264,stream-format=byte-stream,alignment=au`, so
+> `x264enc` negotiates byte-stream automatically — even when a tee branch (e.g.
+> `rtph264pay`) would otherwise prefer `avc`.
+
+> Remote video is **not** subscribed by default (an intercom-style deployment publishes
+> video and only receives audio). Set `receive-video=true` to subscribe to the loudest
+> speaker's video and push it out of the src pad; leave it off to save downlink
+> bandwidth if the src pad is unused.
 
 ### Example: audio bridge (companion pipelines)
 
@@ -156,14 +161,14 @@ gst-launch-1.0 -v alsasrc ! audioconvert ! opusenc ! udpsink host=127.0.0.1 port
 | `appid` | — | Agora App ID **or** a token |
 | `channel` | — | Agora channel name |
 | `userid` | — | Agora user id (optional; auto-assigned if unset) |
-| `mode` | `3` | `1` = no media, `2` = video only, `3` = video + audio |
+| `mode` | `3` | `1` = local loopback test (no SDK), `2` = video only (no audio bridge), `3` = video + audio |
 | `audio` | `false` | Treat this element's pads as audio instead of video |
+| `receive-video` | `false` | Subscribe to remote video and push it out of the src pad |
 | `host` | `127.0.0.1` | UDP host for the audio bridge |
 | `outport` | `7374` | UDP port audio **from** Agora is sent to (PCM S16LE) |
 | `inport` | `7373` | UDP port audio **to** Agora is read from (Opus) |
 | `out-audio-delay` / `out-video-delay` | `0` | Delay (ms) on media **from** Agora → pipeline, for A/V sync |
 | `in-audio-delay` / `in-video-delay` | `0` | Delay (ms) on media **from** pipeline → Agora |
-| `transcode` | `false` | Transcode to respect a requested bitrate |
 | `proxy` | `false` | Route via the Agora cloud proxy (firewalled networks) |
 | `proxyips` | — | Comma-separated proxy signalling IPs |
 | `proxytimeout` | `10000` | Timeout (ms) before falling back to the proxy |

@@ -1,11 +1,11 @@
-plugin_c_args = ['-DHAVE_CONFIG_H -DBOOB']
+plugin_c_args = ['-DHAVE_CONFIG_H']
 
 cdata = configuration_data()
 cdata.set_quoted('PACKAGE_VERSION', gst_version)
 cdata.set_quoted('PACKAGE', 'gst-agora')
 cdata.set_quoted('GST_LICENSE', 'LGPL')
 cdata.set_quoted('GST_API_VERSION', api_version)
-cdata.set_quoted('GST_PACKAGE_NAME', 'agora source and sink pluging')
+cdata.set_quoted('GST_PACKAGE_NAME', 'Agora GStreamer plugin')
 cdata.set_quoted('GST_PACKAGE_ORIGIN', 'https://www.agora.io')
 configure_file(output : 'config.h', configuration : cdata)
 
@@ -13,10 +13,6 @@ configure_file(output : 'config.h', configuration : cdata)
 # This fork builds only the agoraioudp element. The agorasink / agorasrc /
 # agoraio targets were removed; restore them from git history if needed.
 
-x264 = dependency('x264')
-swscale = dependency('libswscale')
-opus = dependency('opus')
-av= dependency('libavcodec')
 gst_base_dep = dependency('gstreamer-base-1.0')
 gst_app_dep = dependency('gstreamer-app-1.0')
 
@@ -31,10 +27,15 @@ agoraioudp_sources = [
   'agoraioudp/gstagoraioudp.c',
   ]
 
+# The C ABI headers (agorac.h/agoraconfig.h) always come from the repo backend,
+# never from a stale copy in /usr/local/include.
+agorac_inc = include_directories('../../agora/libagorac')
+
 gstagorioudp = library('gstagoraioudp',
   agoraioudp_sources,
   c_args: plugin_c_args,
-  dependencies : [gst_dep,x264, swscale, opus,av, gst_base_dep, gst_app_dep],
+  include_directories : agorac_inc,
+  dependencies : [gst_dep, gst_base_dep, gst_app_dep],
   install : true,
   install_dir : plugins_install_dir,
   # Link the prebuilt backend + SDK after the plugin objects and force-keep them:

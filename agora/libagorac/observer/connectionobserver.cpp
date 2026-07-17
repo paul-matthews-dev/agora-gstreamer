@@ -4,7 +4,14 @@
 
 #include "../agoraio.h"
 
-#include "iostream"
+#include "../helpers/agoralog.h"
+
+static std::string connInfoString(const char* event,
+                                  const agora::rtc::TConnectionInfo &connectionInfo){
+    return std::string(event)+": id "+std::to_string(connectionInfo.id)
+           +", channelId "+connectionInfo.channelId.get()->c_str()
+           +", localUserId "+connectionInfo.localUserId.get()->c_str();
+}
 
 void ConnectionObserver::onConnected(const agora::rtc::TConnectionInfo &connectionInfo,
 										   agora::rtc::CONNECTION_CHANGED_REASON_TYPE reason)
@@ -13,10 +20,7 @@ void ConnectionObserver::onConnected(const agora::rtc::TConnectionInfo &connecti
 		   connectionInfo.channelId.get()->c_str(), connectionInfo.localUserId.get()->c_str(),
 		   reason);*/
 
-    std::cout<<"onConnected: id "<< connectionInfo.id
-             <<", channelId "<<connectionInfo.channelId.get()->c_str()
-             <<", localUserId "<<connectionInfo.localUserId.get()->c_str()
-             <<", reason "<<reason<<std::endl;
+    logInfo(connInfoString("onConnected", connectionInfo)+", reason "+std::to_string(reason));
 
     if(_onUserConnected!=nullptr){
         _onUserConnected(connectionInfo.localUserId.get()->c_str(), USER_CONNECTED);
@@ -34,10 +38,7 @@ void ConnectionObserver::onConnected(const agora::rtc::TConnectionInfo &connecti
 void ConnectionObserver::onDisconnected(const agora::rtc::TConnectionInfo &connectionInfo,
 											  agora::rtc::CONNECTION_CHANGED_REASON_TYPE reason)
 {
-	std::cout<<"onDisconnected: id "<< connectionInfo.id
-             <<", channelId "<<connectionInfo.channelId.get()->c_str()
-             <<", localUserId "<<connectionInfo.localUserId.get()->c_str()
-             <<", reason "<<reason<<std::endl;
+	logInfo(connInfoString("onDisconnected", connectionInfo)+", reason "+std::to_string(reason));
 
 	// notify the thread which is waiting for the SDK to be disconnected
 	disconnect_ready_.Set();
@@ -51,10 +52,7 @@ void ConnectionObserver::onDisconnected(const agora::rtc::TConnectionInfo &conne
 void ConnectionObserver::onConnecting(const agora::rtc::TConnectionInfo &connectionInfo,
 											agora::rtc::CONNECTION_CHANGED_REASON_TYPE reason)
 {
-	std::cout<<"onConnecting: id "<< connectionInfo.id
-             <<", channelId "<<connectionInfo.channelId.get()->c_str()
-             <<", localUserId "<<connectionInfo.localUserId.get()->c_str()
-             <<", reason "<<reason<<std::endl;
+	logInfo(connInfoString("onConnecting", connectionInfo)+", reason "+std::to_string(reason));
 
     std::string userId=connectionInfo.localUserId.get()->c_str();
     if(_parent!=nullptr){
@@ -65,10 +63,7 @@ void ConnectionObserver::onConnecting(const agora::rtc::TConnectionInfo &connect
 void ConnectionObserver::onReconnecting(const agora::rtc::TConnectionInfo &connectionInfo,
 											  agora::rtc::CONNECTION_CHANGED_REASON_TYPE reason)
 {
-	std::cout<<"onReconnecting: id "<< connectionInfo.id
-             <<", channelId "<<connectionInfo.channelId.get()->c_str()
-             <<", localUserId "<<connectionInfo.localUserId.get()->c_str()
-             <<", reason "<<reason<<std::endl;
+	logInfo(connInfoString("onReconnecting", connectionInfo)+", reason "+std::to_string(reason));
 
     std::string userId=connectionInfo.localUserId.get()->c_str();
     if(_parent!=nullptr){
@@ -80,10 +75,7 @@ void ConnectionObserver::onReconnecting(const agora::rtc::TConnectionInfo &conne
 void ConnectionObserver::onReconnected(const agora::rtc::TConnectionInfo &connectionInfo,
 											 agora::rtc::CONNECTION_CHANGED_REASON_TYPE reason)
 {
-	std::cout<<"onReconnected: id "<< connectionInfo.id
-             <<", channelId "<<connectionInfo.channelId.get()->c_str()
-             <<", localUserId "<<connectionInfo.localUserId.get()->c_str()
-             <<", reason "<<reason<<std::endl;
+	logInfo(connInfoString("onReconnected", connectionInfo)+", reason "+std::to_string(reason));
 
     std::string userId=connectionInfo.localUserId.get()->c_str();
     if(_parent!=nullptr){
@@ -93,10 +85,7 @@ void ConnectionObserver::onReconnected(const agora::rtc::TConnectionInfo &connec
 
 void ConnectionObserver::onConnectionLost(const agora::rtc::TConnectionInfo &connectionInfo)
 {
-	std::cout<<"onConnectionLost: id "<< connectionInfo.id
-             <<", channelId "<<connectionInfo.channelId.get()->c_str()
-             <<", localUserId "<<connectionInfo.localUserId.get()->c_str()
-             <<std::endl;
+	logInfo(connInfoString("onConnectionLost", connectionInfo));
 
     std::string userId=connectionInfo.localUserId.get()->c_str();
     if(_parent!=nullptr){
@@ -116,7 +105,7 @@ void ConnectionObserver::onUplinkNetworkInfoUpdated(const agora::rtc::UplinkNetw
 void ConnectionObserver::onUserJoined(agora::user_id_t userId)
 {
 
-    std::cout <<"onUserJoined: userId "<<userId<<std::endl;
+    logInfo(std::string("onUserJoined: userId ")+userId);
 
     if(_onUserStateChanged!=nullptr){
         _onUserStateChanged(userId, USER_JOIN);
@@ -131,7 +120,7 @@ void ConnectionObserver::onUserLeft(agora::user_id_t userId,
 										  agora::rtc::USER_OFFLINE_REASON_TYPE reason)
 {
 
-   std::cout<<"onUserLeft: "<<"userId: "<<userId<<std::endl;
+   logInfo(std::string("onUserLeft: userId ")+userId);
 
    if(_onUserStateChanged!=nullptr){
         _onUserStateChanged(userId, USER_LEAVE);

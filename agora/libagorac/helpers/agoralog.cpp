@@ -1,84 +1,58 @@
-#define DEBUG_MODE 1
+#include "agoralog.h"
 
+#include <atomic>
+#include <cstdio>
 #include <fstream>
-#include <chrono>
-#include <sys/time.h>
 #include <mutex>
+#include <sys/time.h>
 
-std::mutex g_mutex;
+static std::atomic<bool> g_logEnabled{false};
+static std::mutex g_logMutex;
 
-#define MAX_LOG_FILE_SIZE 1024*1024*250 //20 MB
-#define LOG_FILE_NAME    "/tmp/agora.log"
+static constexpr std::streamoff MAX_LOG_FILE_SIZE = 250LL * 1024 * 1024;
+static const char* LOG_FILE_NAME = "/tmp/agora.log";
+
+void setLogEnabled(bool enabled){
+  g_logEnabled.store(enabled, std::memory_order_relaxed);
+}
 
 void logMessage(const std::string& message){
 
-#ifdef DEBUG_MODE
+  if(!g_logEnabled.load(std::memory_order_relaxed)){
+     return;
+  }
 
   char buffer[30];
   struct timeval tv;
-
-  time_t curtime;
-
-  gettimeofday(&tv, NULL); 
-  curtime=tv.tv_sec;
-  strftime(buffer,30,"%m-%d-%Y  %T.",localtime(&curtime));
+  gettimeofday(&tv, NULL);
+  time_t curtime=tv.tv_sec;
+  strftime(buffer, sizeof(buffer), "%m-%d-%Y  %T.", localtime(&curtime));
   int ms=(int)((tv.tv_usec)/1000);
 
   char fullTime[40];
-  snprintf(fullTime, 40, "%s%3d",buffer, ms);
+  snprintf(fullTime, sizeof(fullTime), "%s%3d", buffer, ms);
 
-  std::lock_guard<std::mutex> guard(g_mutex);
-  std::ofstream file(LOG_FILE_NAME,std::ios::app);
+  std::lock_guard<std::mutex> guard(g_logMutex);
+
+  // keep the stream open between messages; reopen (truncating) if it grew
+  // past the cap so a long-running session cannot fill /tmp.
+  static std::ofstream file(LOG_FILE_NAME, std::ios::app);
+  if(file.is_open() && file.tellp() > MAX_LOG_FILE_SIZE){
+     file.close();
+     file.open(LOG_FILE_NAME, std::ios::trunc);
+  }
   if(!file.is_open()){
      return;
   }
-  file<<fullTime<<": "<<message<<std::endl;
-  file.close();
-
-#endif	
-  
+  file<<fullTime<<": "<<message<<'\n';
+  file.flush();
 }
 
+void logInfo(const std::string& message){
 
-void CheckAndRollLogFile(){
+  //stdout is captured by the supervising process (journal) — always emit
+  printf("AgoraIO: %s\n", message.c_str());
+  fflush(stdout);
 
-  #ifdef DEBUG_MODE
-
-  std::lock_guard<std::mutex> guard(g_mutex);
-
-  std::ofstream logFile(LOG_FILE_NAME,std::ios::app);
-  if(!logFile.is_open()){
-     return;
-  }
-
-  //TODO
-  auto currentFileSize = logFile.tellp();
-  logFile.close();
-
-  if(currentFileSize>MAX_LOG_FILE_SIZE){
-
-    char oldFileName[256];
-
-    char buffer[30];
-    struct timeval tv;
-    time_t curtime;
-    gettimeofday(&tv, NULL); 
-    curtime=tv.tv_sec;
-    strftime(buffer,30,"%m-%d-%Y-%I_%M_%S",localtime(&curtime));
-    snprintf(oldFileName, 256, "/tmp/agora-%s.log", buffer);
-
-    std::string cmd=std::string("cp ")+std::string(LOG_FILE_NAME)+" "+oldFileName;
-    system(cmd.c_str());
-
-    //truncate previous file
-    std::ofstream logFile2(LOG_FILE_NAME);
-    if(logFile2.is_open()){
-       logFile2.close();
-     }
-  }
-
-
-  #endif
-
+  logMessage(message);
 }
-
